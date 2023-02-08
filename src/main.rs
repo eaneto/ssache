@@ -21,22 +21,33 @@ const CRLF: &str = "\r\n";
 
 fn main() {
     env_logger::init();
+    let listener = start_server();
+    handle_connections(listener);
+}
 
+fn start_server() -> TcpListener {
     info!("Ssache is starting");
 
+    // TODO Get port from command line
     let listener = match TcpListener::bind("127.0.0.1:7777") {
         Ok(listener) => listener,
         Err(e) => panic!("Unable to start ssache on port 7777. Error = {:?}", e),
     };
 
+    info!("Ssache is ready to accept connections");
+
+    listener
+}
+
+fn handle_connections(listener: TcpListener) {
+    // TODO Change value to Bytes
+    let database: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    // TODO Get thread pool size from command line
     let pool = match ThreadPool::new(8) {
         Ok(pool) => pool,
         Err(_) => panic!("Invalid number of threads for the thread pool."),
     };
-
-    info!("Ssache is ready to accept connections");
-
-    let database: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // TODO Keep connection open with client.
     for stream in listener.incoming() {
@@ -47,7 +58,7 @@ fn main() {
 
         let database_clone = database.clone();
         pool.execute(move || {
-            if let Err(_) = handle_connection(stream, database_clone) {
+            if let Err(_) = handle_request(stream, database_clone) {
                 warn!("Error executing tcp stream");
             };
         });
@@ -62,7 +73,7 @@ struct NotEnoughParametersError;
 struct ConnectionError;
 
 // TODO Add integration tests
-fn handle_connection(
+fn handle_request(
     mut stream: TcpStream,
     database: Arc<Mutex<HashMap<String, String>>>,
 ) -> Result<(), ConnectionError> {
