@@ -41,6 +41,7 @@ fn start_server() -> TcpListener {
 
 fn handle_connections(listener: TcpListener) {
     // TODO Change value to Bytes
+    // TODO Save changes on disk once an hour
     let database: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // TODO Get thread pool size from command line
