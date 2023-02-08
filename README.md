@@ -1,0 +1,3 @@
+# Ssache
+
+Simple cache. WIP

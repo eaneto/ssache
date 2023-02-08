@@ -39,7 +39,6 @@ fn main() {
     let database: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // TODO Keep connection open with client.
-    // TODO Create thread pool and handle connections on pool.
     for stream in listener.incoming() {
         let stream = match stream {
             Ok(stream) => stream,
