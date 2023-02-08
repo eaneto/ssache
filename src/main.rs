@@ -79,6 +79,7 @@ fn handle_request(
     database: Arc<Mutex<HashMap<String, String>>>,
 ) -> Result<(), ConnectionError> {
     let buf_reader = BufReader::new(&mut stream);
+    // TODO handle this error when no data is sent
     let command_line = buf_reader.lines().next().unwrap().unwrap();
     let command_line = command_line.split_whitespace();
     let command_line: Vec<&str> = command_line.collect();
