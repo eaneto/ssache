@@ -69,31 +69,31 @@ fn handle_connections(listener: TcpListener) {
 }
 
 #[derive(Debug, Clone)]
-struct NotEnoughParametersError;
+struct NotEnoughParametersError {
+    message: String,
+}
 
-// TODO Rename this error
 #[derive(Debug, Clone)]
-struct ConnectionError;
+struct NoDataReceivedError;
 
 // TODO Add integration tests
 fn handle_request(
     mut stream: TcpStream,
     database: Arc<Mutex<HashMap<String, String>>>,
-) -> Result<(), ConnectionError> {
+) -> Result<(), NotEnoughParametersError> {
     let buf_reader = BufReader::new(&mut stream);
-    // TODO handle this error when no data is sent
-    let command_line = buf_reader.lines().next().unwrap().unwrap();
-    let command_line = command_line.split_whitespace();
-    let command_line: Vec<&str> = command_line.collect();
-    if command_line.get(0).is_none() {
-        return Err(ConnectionError);
+    let command_line = parse_command_line_from_stream(buf_reader);
+    // If no data is received in the command line then there's no need
+    // to return an error to the client.
+    if let Err(_) = command_line {
+        return Ok(());
     }
 
-    let command = command_line.get(0).unwrap();
-    let command = parse_command(command, command_line, &mut stream);
+    let command = parse_command(command_line.unwrap());
 
-    if let Err(_) = command {
-        return Err(ConnectionError);
+    if let Err(e) = command {
+        stream.write_all(e.message.as_bytes()).unwrap();
+        return Err(e);
     }
 
     let command = command.unwrap();
@@ -146,11 +146,33 @@ fn handle_request(
     }
 }
 
-fn parse_command(
-    command: &str,
-    command_line: Vec<&str>,
-    stream: &mut TcpStream,
-) -> Result<Command, NotEnoughParametersError> {
+fn parse_command_line_from_stream(
+    buf_reader: BufReader<&mut TcpStream>,
+) -> Result<Vec<String>, NoDataReceivedError> {
+    let command_line = buf_reader.lines().next();
+    if command_line.is_none() {
+        return Err(NoDataReceivedError);
+    }
+    let command_line = command_line.unwrap();
+    if let Err(_e) = command_line {
+        return Err(NoDataReceivedError);
+    }
+
+    let command_line = command_line.unwrap();
+    let command_line = command_line.split_whitespace();
+    let command_line: Vec<String> = command_line
+        .into_iter()
+        .map(|slice| slice.to_string())
+        .collect();
+    if command_line.get(0).is_none() {
+        return Err(NoDataReceivedError);
+    }
+
+    Ok(command_line)
+}
+
+fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughParametersError> {
+    let command = command_line.get(0).unwrap();
     if command.eq(&String::from("GET")) {
         if let Some(key) = command_line.get(1) {
             Ok(Command::Get {
@@ -158,9 +180,8 @@ fn parse_command(
             })
         } else {
             debug!("not enough parameters for GET command");
-            let response = format!("-ERROR not enough parameters for GET{CRLF}");
-            stream.write_all(response.as_bytes()).unwrap();
-            Err(NotEnoughParametersError)
+            let message = format!("-ERROR not enough parameters for GET{CRLF}");
+            Err(NotEnoughParametersError { message })
         }
     } else if command.eq(&String::from("SET")) {
         if let (Some(key), Some(_)) = (command_line.get(1), command_line.get(2)) {
@@ -170,9 +191,8 @@ fn parse_command(
             })
         } else {
             debug!("not enough parameters for SET command");
-            let response = format!("-ERROR not enough parameters for SET{CRLF}");
-            stream.write_all(response.as_bytes()).unwrap();
-            Err(NotEnoughParametersError)
+            let message = format!("-ERROR not enough parameters for SET{CRLF}");
+            Err(NotEnoughParametersError { message })
         }
     } else if command.eq(&String::from("QUIT")) {
         Ok(Command::Quit)
