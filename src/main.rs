@@ -14,8 +14,8 @@ enum Command {
     // SET key value
     Set { key: String, value: String },
     Quit,
-    // PING some
-    Ping { value: String },
+    // PING message
+    Ping { message: String },
     Unknown,
 }
 
@@ -127,12 +127,12 @@ fn handle_request(
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
-        Command::Ping { value } => {
-            let size = value.len();
+        Command::Ping { message } => {
+            let size = message.len();
             let response = if size == 0 {
                 format!("+PONG{CRLF}")
             } else {
-                format!("${size}{CRLF}+{value}{CRLF}")
+                format!("${size}{CRLF}+{message}{CRLF}")
             };
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
@@ -178,7 +178,7 @@ fn parse_command(
         Ok(Command::Quit)
     } else if command.eq(&String::from("PING")) {
         let value = command_line[1..].join(" ");
-        Ok(Command::Ping { value })
+        Ok(Command::Ping { message: value })
     } else {
         Ok(Command::Unknown)
     }
