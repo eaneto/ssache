@@ -101,13 +101,13 @@ fn handle_request(
         Command::Get { key } => match database.get(&key) {
             Some(value) => {
                 debug!("found {:?} for {:?}", value, key);
-                let response = format!("OK{CRLF}{value}{CRLF}");
+                let response = format!("+{value}{CRLF}");
                 stream.write_all(response.as_bytes()).unwrap();
                 Ok(())
             }
             None => {
                 debug!("value not found for {:?}", key);
-                let response = format!("OK{CRLF}");
+                let response = format!("+OK{CRLF}");
                 stream.write_all(response.as_bytes()).unwrap();
                 Ok(())
             }
@@ -115,13 +115,13 @@ fn handle_request(
         Command::Set { key, value } => {
             database.insert(key, value);
             debug!("value successfully set");
-            let response = format!("OK{CRLF}");
+            let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
         Command::Unknown => {
             debug!("Unknown command");
-            let response = format!("ERROR unknown command{CRLF}");
+            let response = format!("-ERROR unknown command{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
@@ -140,7 +140,7 @@ fn parse_command(
             })
         } else {
             debug!("not enough parameters for GET command");
-            let response = format!("ERROR not enough parameters for GET{CRLF}");
+            let response = format!("-ERROR not enough parameters for GET{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Err(NotEnoughParametersError)
         }
@@ -152,7 +152,7 @@ fn parse_command(
             })
         } else {
             debug!("not enough parameters for SET command");
-            let response = format!("ERROR not enough parameters for SET{CRLF}");
+            let response = format!("-ERROR not enough parameters for SET{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Err(NotEnoughParametersError)
         }
