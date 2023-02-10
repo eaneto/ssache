@@ -8,6 +8,7 @@ use std::{
 use log::{debug, info, warn};
 use ssache::ThreadPool;
 
+#[derive(Debug, PartialEq)]
 enum Command {
     // GET key
     Get { key: String },
@@ -201,5 +202,99 @@ fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughParamete
         Ok(Command::Ping { message: value })
     } else {
         Ok(Command::Unknown)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_unkown_command() {
+        let mut command_line = Vec::new();
+        command_line.push("UNKOWN".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), Command::Unknown);
+    }
+
+    #[test]
+    fn parse_quit_command() {
+        let mut command_line = Vec::new();
+        command_line.push("QUIT".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), Command::Quit);
+    }
+
+    #[test]
+    fn parse_get_command_without_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("GET".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_err(), true);
+    }
+
+    #[test]
+    fn parse_get_command_with_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("GET".to_string());
+        command_line.push("key".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Get {
+                key: "key".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_set_command_with_no_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("SET".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_err(), true);
+    }
+
+    #[test]
+    fn parse_set_command_with_only_the_key_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("SET".to_string());
+        command_line.push("key".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_err(), true);
+    }
+
+    #[test]
+    fn parse_set_command_with_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("SET".to_string());
+        command_line.push("key".to_string());
+        command_line.push("value".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Set {
+                key: "key".to_string(),
+                value: "value".to_string(),
+            }
+        );
     }
 }
