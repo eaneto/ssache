@@ -8,12 +8,14 @@ use std::{
 use log::{debug, info, warn};
 use ssache::ThreadPool;
 
-// TODO: Add QUIT and PING
 enum Command {
     // GET key
     Get { key: String },
     // SET key value
     Set { key: String, value: String },
+    Quit,
+    // PING some
+    Ping { value: String },
     Unknown,
 }
 
@@ -120,6 +122,21 @@ fn handle_request(
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
+        Command::Quit => {
+            let response = format!("+OK{CRLF}");
+            stream.write_all(response.as_bytes()).unwrap();
+            Ok(())
+        }
+        Command::Ping { value } => {
+            let size = value.len();
+            let response = if size == 0 {
+                format!("+PONG{CRLF}")
+            } else {
+                format!("${size}{CRLF}+{value}{CRLF}")
+            };
+            stream.write_all(response.as_bytes()).unwrap();
+            Ok(())
+        }
         Command::Unknown => {
             debug!("Unknown command");
             let response = format!("-ERROR unknown command{CRLF}");
@@ -157,6 +174,17 @@ fn parse_command(
             stream.write_all(response.as_bytes()).unwrap();
             Err(NotEnoughParametersError)
         }
+    } else if command.eq(&String::from("QUIT")) {
+        Ok(Command::Quit)
+    } else if command.eq(&String::from("PING")) {
+        Ok(Command::Ping {
+            value: {
+                match command_line.get(1) {
+                    Some(value) => value.to_string(),
+                    None => "".to_string(),
+                }
+            },
+        })
     } else {
         Ok(Command::Unknown)
     }
