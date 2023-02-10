@@ -8,7 +8,7 @@ use std::{
 use log::{debug, info, warn};
 use ssache::ThreadPool;
 
-// TODO: Add QUIT
+// TODO: Add QUIT and PING
 enum Command {
     // GET key
     Get { key: String },
@@ -101,13 +101,14 @@ fn handle_request(
         Command::Get { key } => match database.get(&key) {
             Some(value) => {
                 debug!("found {:?} for {:?}", value, key);
-                let response = format!("+{value}{CRLF}");
+                let size = value.len();
+                let response = format!("${size}{CRLF}+{value}{CRLF}");
                 stream.write_all(response.as_bytes()).unwrap();
                 Ok(())
             }
             None => {
                 debug!("value not found for {:?}", key);
-                let response = format!("+OK{CRLF}");
+                let response = format!("$-1{CRLF}");
                 stream.write_all(response.as_bytes()).unwrap();
                 Ok(())
             }
