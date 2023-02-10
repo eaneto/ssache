@@ -163,10 +163,10 @@ fn parse_command(
             Err(NotEnoughParametersError)
         }
     } else if command.eq(&String::from("SET")) {
-        if let (Some(key), Some(value)) = (command_line.get(1), command_line.get(2)) {
+        if let (Some(key), Some(_)) = (command_line.get(1), command_line.get(2)) {
             Ok(Command::Set {
                 key: key.to_string(),
-                value: value.to_string(),
+                value: command_line[2..].join(" "),
             })
         } else {
             debug!("not enough parameters for SET command");
@@ -177,14 +177,8 @@ fn parse_command(
     } else if command.eq(&String::from("QUIT")) {
         Ok(Command::Quit)
     } else if command.eq(&String::from("PING")) {
-        Ok(Command::Ping {
-            value: {
-                match command_line.get(1) {
-                    Some(value) => value.to_string(),
-                    None => "".to_string(),
-                }
-            },
-        })
+        let value = command_line[1..].join(" ");
+        Ok(Command::Ping { value })
     } else {
         Ok(Command::Unknown)
     }
