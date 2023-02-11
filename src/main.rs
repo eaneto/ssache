@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use clap::Parser;
 use log::{debug, info, warn};
 use ssache::ThreadPool;
 
@@ -20,35 +21,46 @@ enum Command {
     Unknown,
 }
 
+#[derive(Parser, Debug)]
+struct Args {
+    // Port to run the server
+    #[arg(short, long, default_value_t = 7777)]
+    port: u16,
+
+    // Size of the thread pool to process requests
+    #[arg(short, long, default_value_t = 8)]
+    thread_pool_size: usize,
+}
+
 const CRLF: &str = "\r\n";
 
 fn main() {
     env_logger::init();
-    let listener = start_server();
-    handle_connections(listener);
+    let args = Args::parse();
+    let listener = start_server(&args);
+    handle_connections(listener, &args);
 }
 
-fn start_server() -> TcpListener {
+fn start_server(args: &Args) -> TcpListener {
     info!("Ssache is starting");
 
-    // TODO Get port from command line
-    let listener = match TcpListener::bind("127.0.0.1:7777") {
+    let port = args.port;
+    let listener = match TcpListener::bind(format!("127.0.0.1:{port}")) {
         Ok(listener) => listener,
         Err(e) => panic!("Unable to start ssache on port 7777. Error = {:?}", e),
     };
 
-    info!("Ssache is ready to accept connections");
+    info!("Ssache is ready to accept connections on port {port}");
 
     listener
 }
 
-fn handle_connections(listener: TcpListener) {
+fn handle_connections(listener: TcpListener, args: &Args) {
     // TODO Change value to Bytes
     // TODO Save changes on disk once an hour
     let database: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    // TODO Get thread pool size from command line
-    let pool = match ThreadPool::new(8) {
+    let pool = match ThreadPool::new(args.thread_pool_size) {
         Ok(pool) => pool,
         Err(_) => panic!("Invalid number of threads for the thread pool."),
     };
