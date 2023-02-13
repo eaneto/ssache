@@ -9,17 +9,7 @@ use clap::Parser;
 use log::{debug, info, warn};
 use ssache::ThreadPool;
 
-#[derive(Debug, PartialEq)]
-enum Command {
-    // GET key
-    Get { key: String },
-    // SET key value
-    Set { key: String, value: String },
-    Quit,
-    // PING message
-    Ping { message: String },
-    Unknown,
-}
+mod command;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -31,8 +21,6 @@ struct Args {
     #[arg(short, long, default_value_t = 8)]
     thread_pool_size: usize,
 }
-
-const CRLF: &str = "\r\n";
 
 fn main() {
     env_logger::init();
@@ -81,10 +69,7 @@ fn handle_connections(listener: TcpListener, args: &Args) {
     }
 }
 
-#[derive(Debug, Clone)]
-struct NotEnoughParametersError {
-    message: String,
-}
+const CRLF: &str = "\r\n";
 
 #[derive(Debug, Clone)]
 struct NoDataReceivedError;
@@ -93,7 +78,7 @@ struct NoDataReceivedError;
 fn handle_request(
     mut stream: TcpStream,
     database: Arc<Mutex<HashMap<String, String>>>,
-) -> Result<(), NotEnoughParametersError> {
+) -> Result<(), command::NotEnoughParametersError> {
     let buf_reader = BufReader::new(&mut stream);
     let command_line = parse_command_line_from_stream(buf_reader);
     // If no data is received in the command line then there's no need
@@ -102,7 +87,7 @@ fn handle_request(
         return Ok(());
     }
 
-    let command = parse_command(command_line.unwrap());
+    let command = command::parse_command(command_line.unwrap());
 
     if let Err(e) = command {
         stream.write_all(e.message.as_bytes()).unwrap();
@@ -113,7 +98,7 @@ fn handle_request(
 
     let mut database = database.lock().unwrap();
     match command {
-        Command::Get { key } => match database.get(&key) {
+        command::Command::Get { key } => match database.get(&key) {
             Some(value) => {
                 debug!("found {:?} for {:?}", value, key);
                 let size = value.len();
@@ -128,19 +113,19 @@ fn handle_request(
                 Ok(())
             }
         },
-        Command::Set { key, value } => {
+        command::Command::Set { key, value } => {
             database.insert(key, value);
             debug!("value successfully set");
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
-        Command::Quit => {
+        command::Command::Quit => {
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
-        Command::Ping { message } => {
+        command::Command::Ping { message } => {
             let size = message.len();
             let response = if size == 0 {
                 format!("+PONG{CRLF}")
@@ -150,7 +135,7 @@ fn handle_request(
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
-        Command::Unknown => {
+        command::Command::Unknown => {
             debug!("Unknown command");
             let response = format!("-ERROR unknown command{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
@@ -182,131 +167,4 @@ fn parse_command_line_from_stream(
     }
 
     Ok(command_line)
-}
-
-fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughParametersError> {
-    let command = command_line.get(0).unwrap();
-    if command.eq(&String::from("GET")) {
-        if let Some(key) = command_line.get(1) {
-            Ok(Command::Get {
-                key: key.to_string(),
-            })
-        } else {
-            debug!("not enough parameters for GET command");
-            let message = format!("-ERROR not enough parameters for GET{CRLF}");
-            Err(NotEnoughParametersError { message })
-        }
-    } else if command.eq(&String::from("SET")) {
-        if let (Some(key), Some(_)) = (command_line.get(1), command_line.get(2)) {
-            Ok(Command::Set {
-                key: key.to_string(),
-                value: command_line[2..].join(" "),
-            })
-        } else {
-            debug!("not enough parameters for SET command");
-            let message = format!("-ERROR not enough parameters for SET{CRLF}");
-            Err(NotEnoughParametersError { message })
-        }
-    } else if command.eq(&String::from("QUIT")) {
-        Ok(Command::Quit)
-    } else if command.eq(&String::from("PING")) {
-        let value = command_line[1..].join(" ");
-        Ok(Command::Ping { message: value })
-    } else {
-        Ok(Command::Unknown)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_unkown_command() {
-        let mut command_line = Vec::new();
-        command_line.push("UNKOWN".to_string());
-
-        let result = parse_command(command_line);
-
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.unwrap(), Command::Unknown);
-    }
-
-    #[test]
-    fn parse_quit_command() {
-        let mut command_line = Vec::new();
-        command_line.push("QUIT".to_string());
-
-        let result = parse_command(command_line);
-
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(result.unwrap(), Command::Quit);
-    }
-
-    #[test]
-    fn parse_get_command_without_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("GET".to_string());
-
-        let result = parse_command(command_line);
-
-        assert_eq!(result.is_err(), true);
-    }
-
-    #[test]
-    fn parse_get_command_with_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("GET".to_string());
-        command_line.push("key".to_string());
-
-        let result = parse_command(command_line);
-
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(
-            result.unwrap(),
-            Command::Get {
-                key: "key".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn parse_set_command_with_no_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("SET".to_string());
-
-        let result = parse_command(command_line);
-
-        assert_eq!(result.is_err(), true);
-    }
-
-    #[test]
-    fn parse_set_command_with_only_the_key_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("SET".to_string());
-        command_line.push("key".to_string());
-
-        let result = parse_command(command_line);
-
-        assert_eq!(result.is_err(), true);
-    }
-
-    #[test]
-    fn parse_set_command_with_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("SET".to_string());
-        command_line.push("key".to_string());
-        command_line.push("value".to_string());
-
-        let result = parse_command(command_line);
-
-        assert_eq!(result.is_ok(), true);
-        assert_eq!(
-            result.unwrap(),
-            Command::Set {
-                key: "key".to_string(),
-                value: "value".to_string(),
-            }
-        );
-    }
 }
