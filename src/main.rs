@@ -35,7 +35,7 @@ fn start_server(args: &Args) -> TcpListener {
     let port = args.port;
     let listener = match TcpListener::bind(format!("127.0.0.1:{port}")) {
         Ok(listener) => listener,
-        Err(e) => panic!("Unable to start ssache on port 7777. Error = {:?}", e),
+        Err(e) => panic!("Unable to start ssache on port {port}. Error = {:?}", e),
     };
 
     info!("Ssache is ready to accept connections on port {port}");
