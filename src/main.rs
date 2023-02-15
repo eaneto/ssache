@@ -61,8 +61,8 @@ fn handle_connections(listener: TcpListener, args: &Args) {
         };
 
         let database_clone = database.clone();
-        pool.execute(move || {
-            if let Err(_) = handle_request(stream, database_clone) {
+        let _ = pool.execute(move || {
+            if handle_request(stream, database_clone).is_err() {
                 warn!("Error executing tcp stream");
             };
         });
@@ -83,7 +83,7 @@ fn handle_request(
     let command_line = parse_command_line_from_stream(buf_reader);
     // If no data is received in the command line then there's no need
     // to return an error to the client.
-    if let Err(_) = command_line {
+    if command_line.is_err() {
         return Ok(());
     }
 

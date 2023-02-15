@@ -73,10 +73,10 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static,
     {
         let job = Box::new(f);
-        return match self.sender.send(job) {
+        match self.sender.send(job) {
             Ok(_) => Ok(()),
             Err(_) => Err(PoolExecutionError),
-        };
+        }
     }
 }
 
