@@ -6,7 +6,7 @@ use std::{
 };
 
 use clap::Parser;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use ssache::ThreadPool;
 
 mod command;
@@ -61,11 +61,15 @@ fn handle_connections(listener: TcpListener, args: &Args) {
         };
 
         let database_clone = database.clone();
-        let _ = pool.execute(move || {
+        let result = pool.execute(move || {
             if handle_request(stream, database_clone).is_err() {
                 warn!("Error executing tcp stream");
             };
         });
+
+        if result.is_err() {
+            error!("Error sending stream to thread pool executor")
+        }
     }
 }
 
