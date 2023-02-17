@@ -19,7 +19,8 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 - Support storing integers
 - Keep connection with client open
-- Distributed
+- Flush data to disk
+- Distributed storage
 
 ## Building
 
