@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use bytes::Bytes;
 use clap::Parser;
 use log::{debug, error, info, warn};
 use ssache::ThreadPool;
@@ -44,9 +45,8 @@ fn start_server(args: &Args) -> TcpListener {
 }
 
 fn handle_connections(listener: TcpListener, args: &Args) {
-    // TODO Change value to Bytes
     // TODO Save changes on disk once an hour
-    let database: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+    let database: Arc<Mutex<HashMap<String, Bytes>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let pool = match ThreadPool::new(args.thread_pool_size) {
         Ok(pool) => pool,
@@ -81,7 +81,7 @@ struct NoDataReceivedError;
 // TODO Add integration tests
 fn handle_request(
     mut stream: TcpStream,
-    database: Arc<Mutex<HashMap<String, String>>>,
+    database: Arc<Mutex<HashMap<String, Bytes>>>,
 ) -> Result<(), command::NotEnoughParametersError> {
     let buf_reader = BufReader::new(&mut stream);
     let command_line = parse_command_line_from_stream(buf_reader);
@@ -106,6 +106,7 @@ fn handle_request(
             Some(value) => {
                 debug!("found {:?} for {:?}", value, key);
                 let size = value.len();
+                let value = String::from_utf8_lossy(value);
                 let response = format!("${size}{CRLF}+{value}{CRLF}");
                 stream.write_all(response.as_bytes()).unwrap();
                 Ok(())
@@ -134,6 +135,7 @@ fn handle_request(
             let response = if size == 0 {
                 format!("+PONG{CRLF}")
             } else {
+                let message = String::from_utf8_lossy(&message);
                 format!("${size}{CRLF}+{message}{CRLF}")
             };
             stream.write_all(response.as_bytes()).unwrap();

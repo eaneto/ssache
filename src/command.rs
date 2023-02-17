@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use log::debug;
 
 #[derive(Debug, PartialEq)]
@@ -5,10 +6,10 @@ pub enum Command {
     // GET key
     Get { key: String },
     // SET key value
-    Set { key: String, value: String },
+    Set { key: String, value: Bytes },
     Quit,
     // PING message
-    Ping { message: String },
+    Ping { message: Bytes },
     Unknown,
 }
 
@@ -35,7 +36,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
         if let (Some(key), Some(_)) = (command_line.get(1), command_line.get(2)) {
             Ok(Command::Set {
                 key: key.to_string(),
-                value: command_line[2..].join(" "),
+                value: command_line[2..].concat().into(),
             })
         } else {
             debug!("not enough parameters for SET command");
@@ -45,7 +46,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
     } else if command.eq(&String::from("QUIT")) {
         Ok(Command::Quit)
     } else if command.eq(&String::from("PING")) {
-        let value = command_line[1..].join(" ");
+        let value = command_line[1..].concat().into();
         Ok(Command::Ping { message: value })
     } else {
         Ok(Command::Unknown)
@@ -140,7 +141,7 @@ mod tests {
             result.unwrap(),
             Command::Set {
                 key: "key".to_string(),
-                value: "value".to_string(),
+                value: Bytes::from("value"),
             }
         );
     }
