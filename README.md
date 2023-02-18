@@ -17,10 +17,16 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 ## TODOs
 
-- Support storing integers
 - Keep connection with client open
 - Flush data to disk
+  - Flush once every hour
+  - Create command to force flush
+- Define ttl to data
+  - Implement EXPIRE and EX on GET
+- Support storing integers
+  - Implement INCR and DECR
 - Distributed storage
+  - Simple last write wins algorithm
 
 ## Building
 
@@ -28,7 +34,9 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 cargo build
 ```
 
-## Usage example
+## Examples
+
+### SET
 
 ```shell
 $ telnet 127.0.0.1 7777
@@ -38,7 +46,11 @@ Escape character is '^]'.
 SET key some-value
 +OK
 Connection closed by foreign host.
+```
 
+### GET
+
+```
 $ telnet 127.0.0.1 7777
 Trying 127.0.0.1...
 Connected to 127.0.0.1.
