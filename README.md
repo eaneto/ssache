@@ -39,6 +39,8 @@ cargo build
 
 ### SET
 
+SET [key] [value]
+
 ```shell
 $ telnet 127.0.0.1 7777
 Trying 127.0.0.1...
@@ -51,7 +53,9 @@ Connection closed by foreign host.
 
 ### GET
 
-```
+GET [key]
+
+```shell
 $ telnet 127.0.0.1 7777
 Trying 127.0.0.1...
 Connected to 127.0.0.1.
@@ -64,3 +68,40 @@ Connection closed by foreign host.
 
 [0]: https://redis.io/
 [1]: https://redis.io/docs/reference/protocol-spec/
+
+### PING
+
+PING [Optional: message]
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+PING
++PONG
+Connection closed by foreign host.
+```
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+PING message
+$7
++message
+Connection closed by foreign host.
+```
+
+### QUIT
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+QUIT
++OK
+Connection closed by foreign host.
+```
