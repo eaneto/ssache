@@ -18,6 +18,7 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 ## TODOs
 
 - Keep connection with client open
+- Integration tests
 - Flush data to disk
   - Flush once every hour
   - Create command to force flush
