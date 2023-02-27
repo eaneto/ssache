@@ -17,6 +17,7 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 ## TODOs
 
+- Shard the database mutexes
 - Keep connection with client open
 - Integration tests
 - Flush data to disk
