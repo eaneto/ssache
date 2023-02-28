@@ -111,6 +111,7 @@ fn handle_request(
     match command {
         command::Command::Get { key } => {
             let shard_key = get_shard_key(&key, database.len());
+            // TODO Remove locks for reading.
             let shard = database[shard_key].lock().unwrap();
 
             return match shard.get(&key) {
