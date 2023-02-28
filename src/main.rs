@@ -1,5 +1,6 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
     sync::{Arc, Mutex},
@@ -46,7 +47,7 @@ fn start_server(args: &Args) -> TcpListener {
 
 fn handle_connections(listener: TcpListener, args: &Args) {
     // TODO Save changes on disk once an hour
-    let database: Arc<Mutex<HashMap<String, Bytes>>> = Arc::new(Mutex::new(HashMap::new()));
+    let database = create_sharded_database(args.thread_pool_size);
 
     let pool = match ThreadPool::new(args.thread_pool_size) {
         Ok(pool) => pool,
@@ -73,6 +74,14 @@ fn handle_connections(listener: TcpListener, args: &Args) {
     }
 }
 
+fn create_sharded_database(num_shards: usize) -> Arc<Vec<Mutex<HashMap<String, Bytes>>>> {
+    let mut db = Vec::with_capacity(num_shards);
+    for _ in 0..num_shards {
+        db.push(Mutex::new(HashMap::new()));
+    }
+    Arc::new(db)
+}
+
 const CRLF: &str = "\r\n";
 
 #[derive(Debug, Clone)]
@@ -81,7 +90,7 @@ struct NoDataReceivedError;
 // TODO Add integration tests
 fn handle_request(
     mut stream: TcpStream,
-    database: Arc<Mutex<HashMap<String, Bytes>>>,
+    database: Arc<Vec<Mutex<HashMap<String, Bytes>>>>,
 ) -> Result<(), command::NotEnoughParametersError> {
     let buf_reader = BufReader::new(&mut stream);
     let command_line = parse_command_line_from_stream(buf_reader);
@@ -99,28 +108,33 @@ fn handle_request(
     }
 
     let command = command.unwrap();
-
-    let mut database = database.lock().unwrap();
     match command {
-        command::Command::Get { key } => match database.get(&key) {
-            Some(value) => {
-                debug!("found {:?} for {:?}", value, key);
-                let size = value.len();
-                let value = String::from_utf8_lossy(value);
-                let response = format!("${size}{CRLF}+{value}{CRLF}");
-                stream.write_all(response.as_bytes()).unwrap();
-                Ok(())
-            }
-            None => {
-                debug!("value not found for {:?}", key);
-                let response = format!("$-1{CRLF}");
-                stream.write_all(response.as_bytes()).unwrap();
-                Ok(())
-            }
-        },
+        command::Command::Get { key } => {
+            let shard_key = get_shard_key(&key, database.len());
+            let shard = database[shard_key].lock().unwrap();
+
+            return match shard.get(&key) {
+                Some(value) => {
+                    debug!("found {:?} for {:?} on shard {:?}", value, key, shard_key);
+                    let size = value.len();
+                    let value = String::from_utf8_lossy(value);
+                    let response = format!("${size}{CRLF}+{value}{CRLF}");
+                    stream.write_all(response.as_bytes()).unwrap();
+                    Ok(())
+                }
+                None => {
+                    debug!("value not found for {:?} on shard {:?}", key, shard_key);
+                    let response = format!("$-1{CRLF}");
+                    stream.write_all(response.as_bytes()).unwrap();
+                    Ok(())
+                }
+            };
+        }
         command::Command::Set { key, value } => {
-            database.insert(key, value);
-            debug!("value successfully set");
+            let shard_key = get_shard_key(&key, database.len());
+            let mut shard = database[shard_key].lock().unwrap();
+            shard.insert(key, value);
+            debug!("value successfully set on shard {:?}", shard_key);
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
@@ -148,6 +162,16 @@ fn handle_request(
             Ok(())
         }
     }
+}
+
+/// Hashes the key to define the shard key and locate the value on the
+/// database.
+fn get_shard_key(key: &String, database_size: usize) -> usize {
+    // TODO Replace with a specific hashing algorithm.
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+    hash as usize % database_size
 }
 
 fn parse_command_line_from_stream(
