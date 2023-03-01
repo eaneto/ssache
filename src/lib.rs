@@ -7,25 +7,6 @@ use log::debug;
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
-struct Worker {
-    id: usize,
-    thread: thread::JoinHandle<()>,
-}
-
-impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
-        let thread = thread::Builder::new()
-            .name(format!("ssache-worker-{}", id))
-            .spawn(move || loop {
-                let job = receiver.lock().unwrap().recv().unwrap();
-                debug!("Worker {id} got a job; executing.");
-                job();
-            })
-            .unwrap();
-        Worker { id, thread }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub struct PoolCreationError;
 
@@ -33,7 +14,6 @@ pub struct PoolCreationError;
 pub struct PoolExecutionError;
 
 pub struct ThreadPool {
-    workers: Vec<Worker>,
     sender: mpsc::Sender<Job>,
 }
 
@@ -59,13 +39,11 @@ impl ThreadPool {
         let (sender, receiver) = mpsc::channel();
         let receiver = Arc::new(Mutex::new(receiver));
 
-        let mut workers = Vec::with_capacity(size);
-
         for id in 0..size {
-            workers.push(Worker::new(id, Arc::clone(&receiver)))
+            Self::prepare_receiver_for_execution(id, Arc::clone(&receiver))
         }
 
-        Ok(ThreadPool { workers, sender })
+        Ok(ThreadPool { sender })
     }
 
     pub fn execute<F>(&self, f: F) -> Result<(), PoolExecutionError>
@@ -78,20 +56,23 @@ impl ThreadPool {
             Err(_) => Err(PoolExecutionError),
         }
     }
+
+    /// Prepares the receiver to get and execute a job on a worker thread.
+    fn prepare_receiver_for_execution(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) {
+        thread::Builder::new()
+            .name(format!("ssache-worker-{}", id))
+            .spawn(move || loop {
+                let job = receiver.lock().unwrap().recv().unwrap();
+                debug!("Worker {id} got a job; executing.");
+                job();
+            })
+            .unwrap();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn build_worker() {
-        let (_, receiver) = mpsc::channel();
-        let receiver = Arc::new(Mutex::new(receiver));
-
-        let worker = Worker::new(1, Arc::clone(&receiver));
-        assert_eq!(worker.id, 1);
-    }
 
     #[test]
     fn build_thread_pool_with_zero_threads() {
@@ -103,8 +84,5 @@ mod tests {
     fn build_thread_pool_with_two_threads() {
         let result = ThreadPool::new(2);
         assert_eq!(result.is_ok(), true);
-        if let Ok(pool) = result {
-            assert_eq!(pool.workers.len(), 2);
-        }
     }
 }
