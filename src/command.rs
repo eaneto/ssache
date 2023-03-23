@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bytes::Bytes;
 use log::debug;
 
@@ -7,6 +9,9 @@ pub enum Command {
     Get { key: String },
     // SET key value
     Set { key: String, value: Bytes },
+    // EXPIRE key time(in milliseconds)
+    Expire { key: String, time: Duration },
+    // QUIT
     Quit,
     // PING message
     Ping { message: Bytes },
@@ -41,6 +46,20 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
         } else {
             debug!("not enough parameters for SET command");
             let message = format!("-ERROR not enough parameters for SET{CRLF}");
+            Err(NotEnoughParametersError { message })
+        }
+    } else if command.eq(&String::from("EXPIRE")) {
+        if let (Some(key), Some(time)) = (command_line.get(1), command_line.get(2)) {
+            // If the expiration time is unparseable use 0, this value
+            // is ignored.
+            let time = time.parse::<u64>().unwrap_or(0);
+            Ok(Command::Expire {
+                key: key.to_string(),
+                time: Duration::from_millis(time),
+            })
+        } else {
+            debug!("not enough parameters for EXPIRE command");
+            let message = format!("-ERROR not enough parameters for EXPIRE{CRLF}");
             Err(NotEnoughParametersError { message })
         }
     } else if command.eq(&String::from("QUIT")) {
@@ -142,6 +161,46 @@ mod tests {
             Command::Set {
                 key: "key".to_string(),
                 value: Bytes::from("value"),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_expire_command_with_no_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("EXPIRE".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_err(), true);
+    }
+
+    #[test]
+    fn parse_expire_command_with_only_the_key_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("EXPIRE".to_string());
+        command_line.push("key".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_err(), true);
+    }
+
+    #[test]
+    fn parse_expire_command_with_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("EXPIRE".to_string());
+        command_line.push("key".to_string());
+        command_line.push("1000".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Expire {
+                key: "key".to_string(),
+                time: Duration::from_millis(1000)
             }
         );
     }

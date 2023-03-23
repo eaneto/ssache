@@ -140,6 +140,12 @@ fn handle_request(
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
+        command::Command::Expire { key, time } => {
+            debug!("WIP");
+            let response = format!("+OK{CRLF}");
+            stream.write_all(response.as_bytes()).unwrap();
+            Ok(())
+        }
         command::Command::Quit => {
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
