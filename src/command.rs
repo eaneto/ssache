@@ -11,6 +11,8 @@ pub enum Command {
     Set { key: String, value: Bytes },
     // EXPIRE key time(in milliseconds)
     Expire { key: String, time: Duration },
+    // SAVE
+    Save,
     // QUIT
     Quit,
     // PING message
@@ -62,6 +64,8 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
             let message = format!("-ERROR not enough parameters for EXPIRE{CRLF}");
             Err(NotEnoughParametersError { message })
         }
+    } else if command.eq(&String::from("SAVE")) {
+        Ok(Command::Save)
     } else if command.eq(&String::from("QUIT")) {
         Ok(Command::Quit)
     } else if command.eq(&String::from("PING")) {
@@ -96,6 +100,17 @@ mod tests {
 
         assert_eq!(result.is_ok(), true);
         assert_eq!(result.unwrap(), Command::Quit);
+    }
+
+    #[test]
+    fn parse_save_command() {
+        let mut command_line = Vec::new();
+        command_line.push("SAVE".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), Command::Save);
     }
 
     #[test]
