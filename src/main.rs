@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
+    fs::File,
     hash::{Hash, Hasher},
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
@@ -147,7 +148,23 @@ fn handle_request(
             Ok(())
         }
         command::Command::Save => {
-            debug!("WIP");
+            debug!("Initiating save process");
+            // FIXME Terrible solution, duplicates all data already in
+            // memory.
+            let mut joined_database: HashMap<String, String> = HashMap::new();
+            for i in 0..database.len() {
+                debug!("Initiating save process for shard {i}");
+                database[i].lock().unwrap().iter().for_each(|(key, value)| {
+                    joined_database.insert(
+                        key.clone(),
+                        String::from_utf8_lossy(&value.clone()).to_string(),
+                    );
+                });
+            }
+            // TODO Handle error
+            let dump = File::create("dump.ssch").unwrap();
+            // TODO Handle error
+            serde_json::to_writer(dump, &joined_database).unwrap();
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
