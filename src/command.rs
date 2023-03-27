@@ -42,7 +42,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
         if let (Some(key), Some(_)) = (command_line.get(1), command_line.get(2)) {
             Ok(Command::Set {
                 key: key.to_string(),
-                value: command_line[2..].concat(),
+                value: command_line[2..].join(" "),
             })
         } else {
             debug!("not enough parameters for SET command");
@@ -68,7 +68,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
     } else if command.eq(&String::from("QUIT")) {
         Ok(Command::Quit)
     } else if command.eq(&String::from("PING")) {
-        let value = command_line[1..].concat();
+        let value = command_line[1..].join(" ");
         Ok(Command::Ping { message: value })
     } else {
         Ok(Command::Unknown)
