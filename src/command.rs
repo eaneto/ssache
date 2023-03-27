@@ -91,6 +91,39 @@ mod tests {
     }
 
     #[test]
+    fn parse_ping_with_no_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("PING".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Ping {
+                message: "".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_ping_with_custom_message() {
+        let mut command_line = Vec::new();
+        command_line.push("PING".to_string());
+        command_line.push("some message".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Ping {
+                message: "some message".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn parse_quit_command() {
         let mut command_line = Vec::new();
         command_line.push("QUIT".to_string());
@@ -175,6 +208,25 @@ mod tests {
             Command::Set {
                 key: "key".to_string(),
                 value: String::from("value"),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_set_command_with_spaces_on_value() {
+        let mut command_line = Vec::new();
+        command_line.push("SET".to_string());
+        command_line.push("key".to_string());
+        command_line.push("value with spaces".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Set {
+                key: "key".to_string(),
+                value: "value with spaces".to_string(),
             }
         );
     }
