@@ -7,7 +7,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bytes::Bytes;
 use clap::Parser;
 use log::{debug, error, info, warn};
 use ssache::ThreadPool;
@@ -75,7 +74,7 @@ fn handle_connections(listener: TcpListener, args: &Args) {
     }
 }
 
-fn create_sharded_database(num_shards: usize) -> Arc<Vec<Mutex<HashMap<String, Bytes>>>> {
+fn create_sharded_database(num_shards: usize) -> Arc<Vec<Mutex<HashMap<String, String>>>> {
     let mut db = Vec::with_capacity(num_shards);
     for _ in 0..num_shards {
         db.push(Mutex::new(HashMap::new()));
@@ -91,7 +90,7 @@ struct NoDataReceivedError;
 // TODO Add integration tests
 fn handle_request(
     mut stream: TcpStream,
-    database: Arc<Vec<Mutex<HashMap<String, Bytes>>>>,
+    database: Arc<Vec<Mutex<HashMap<String, String>>>>,
 ) -> Result<(), command::NotEnoughParametersError> {
     let buf_reader = BufReader::new(&mut stream);
     let command_line = parse_command_line_from_stream(buf_reader);
@@ -119,7 +118,6 @@ fn handle_request(
                 Some(value) => {
                     debug!("found {:?} for {:?} on shard {:?}", value, key, shard_key);
                     let size = value.len();
-                    let value = String::from_utf8_lossy(value);
                     let response = format!("${size}{CRLF}+{value}{CRLF}");
                     stream.write_all(response.as_bytes()).unwrap();
                     Ok(())
@@ -150,15 +148,16 @@ fn handle_request(
         command::Command::Save => {
             debug!("Initiating save process");
             // FIXME Terrible solution, duplicates all data already in
-            // memory.
+            // memory.  I think the best way to solve this without
+            // memory duplication is to save only the reference to the
+            // keys and values on the joined_database map, then when
+            // the file is being created it's only necessary to follow
+            // the reference.
             let mut joined_database: HashMap<String, String> = HashMap::new();
             for i in 0..database.len() {
                 debug!("Initiating save process for shard {i}");
                 database[i].lock().unwrap().iter().for_each(|(key, value)| {
-                    joined_database.insert(
-                        key.clone(),
-                        String::from_utf8_lossy(&value.clone()).to_string(),
-                    );
+                    joined_database.insert(key.clone(), value.clone());
                 });
             }
             // TODO Handle error
@@ -179,7 +178,6 @@ fn handle_request(
             let response = if size == 0 {
                 format!("+PONG{CRLF}")
             } else {
-                let message = String::from_utf8_lossy(&message);
                 format!("${size}{CRLF}+{message}{CRLF}")
             };
             stream.write_all(response.as_bytes()).unwrap();
