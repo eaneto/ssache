@@ -160,11 +160,23 @@ fn handle_request(
                     joined_database.insert(key.clone(), value.clone());
                 });
             }
-            // TODO Handle error
-            let dump = File::create("dump.ssch").unwrap();
-            // TODO Handle error
-            serde_json::to_writer(dump, &joined_database).unwrap();
-            let response = format!("+OK{CRLF}");
+
+            let response = match File::create("dump.ssch") {
+                Ok(mut file) => match bincode::serialize(&joined_database) {
+                    Ok(serialized_database) => {
+                        file.write_all(&serialized_database).unwrap();
+                        format!("+OK{CRLF}")
+                    }
+                    Err(e) => {
+                        debug!("Error serializing database into binary format {:?}", e);
+                        format!("-ERROR Unable to serialize data into binary format{CRLF}")
+                    }
+                },
+                Err(e) => {
+                    debug!("Error creating dump file {:?}", e);
+                    format!("-ERROR Unable to create dump file{CRLF}")
+                }
+            };
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
