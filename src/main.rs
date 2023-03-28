@@ -163,10 +163,13 @@ fn handle_request(
 
             let response = match File::create("dump.ssch") {
                 Ok(mut file) => match bincode::serialize(&joined_database) {
-                    Ok(serialized_database) => {
-                        file.write_all(&serialized_database).unwrap();
-                        format!("+OK{CRLF}")
-                    }
+                    Ok(serialized_database) => match file.write_all(&serialized_database) {
+                        Ok(()) => format!("+OK{CRLF}"),
+                        Err(e) => {
+                            debug!("Error writing the dump to the file {:?}", e);
+                            format!("-ERROR Unable to write the data to the dump file{CRLF}")
+                        }
+                    },
                     Err(e) => {
                         debug!("Error serializing database into binary format {:?}", e);
                         format!("-ERROR Unable to serialize data into binary format{CRLF}")
