@@ -94,7 +94,7 @@ Connection closed by foreign host.
 
 ### LOAD
 
-Loads the content on the dump file into memory.
+Loads the content of the dump file into memory.
 
 ```shell
 $ telnet 127.0.0.1 7777
