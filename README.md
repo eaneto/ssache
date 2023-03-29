@@ -13,6 +13,7 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 - GET
 - SET
 - SAVE
+- LOAD
 - PING
 - QUIT
 
