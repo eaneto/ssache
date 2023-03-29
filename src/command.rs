@@ -12,6 +12,8 @@ pub enum Command {
     Expire { key: String, time: Duration },
     // SAVE
     Save,
+    // LOAD
+    Load,
     // QUIT
     Quit,
     // PING message
@@ -65,6 +67,8 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
         }
     } else if command.eq(&String::from("SAVE")) {
         Ok(Command::Save)
+    } else if command.eq(&String::from("LOAD")) {
+        Ok(Command::Load)
     } else if command.eq(&String::from("QUIT")) {
         Ok(Command::Quit)
     } else if command.eq(&String::from("PING")) {
@@ -143,6 +147,17 @@ mod tests {
 
         assert_eq!(result.is_ok(), true);
         assert_eq!(result.unwrap(), Command::Save);
+    }
+
+    #[test]
+    fn parse_load_command() {
+        let mut command_line = Vec::new();
+        command_line.push("LOAD".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), Command::Load);
     }
 
     #[test]

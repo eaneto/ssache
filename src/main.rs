@@ -1,6 +1,6 @@
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
-    fs::File,
+    fs::{self, File},
     hash::{Hash, Hasher},
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
@@ -178,6 +178,32 @@ fn handle_request(
                 Err(e) => {
                     debug!("Error creating dump file {:?}", e);
                     format!("-ERROR Unable to create dump file{CRLF}")
+                }
+            };
+            stream.write_all(response.as_bytes()).unwrap();
+            Ok(())
+        }
+        command::Command::Load => {
+            let response = match fs::read("dump.ssch") {
+                Ok(file_content) => {
+                    match bincode::deserialize::<HashMap<String, String>>(&file_content) {
+                        Ok(dump) => {
+                            for (key, value) in dump {
+                                let shard_key = get_shard_key(&key, database.len());
+                                let mut shard = database[shard_key].lock().unwrap();
+                                shard.insert(key, value);
+                            }
+                            format!("+OK{CRLF}")
+                        }
+                        Err(e) => {
+                            debug!("Error deserializing database into hashmap format {:?}", e);
+                            format!("-ERROR Unable to deserialize data into hashmap format{CRLF}")
+                        }
+                    }
+                }
+                Err(e) => {
+                    debug!("Error reading dump file {:?}", e);
+                    format!("-ERROR Unable to read dump file{CRLF}")
                 }
             };
             stream.write_all(response.as_bytes()).unwrap();

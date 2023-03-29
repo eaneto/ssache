@@ -82,12 +82,39 @@ Connection closed by foreign host.
 Saves a dump file with all the data in memory.
 
 ```shell
-telnet 127.0.0.1 7777
+$ telnet 127.0.0.1 7777
 Trying 127.0.0.1...
 Connected to 127.0.0.1.
 Escape character is '^]'.
 SAVE
 +OK
+Connection closed by foreign host.
+```
+
+### LOAD
+
+Loads the content on the dump file into memory.
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+LOAD
++OK
+Connection closed by foreign host.
+```
+### PING
+
+PING [Optional: message]
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+PING
++PONG
 Connection closed by foreign host.
 ```
 
