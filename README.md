@@ -12,6 +12,7 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 - GET
 - SET
+- SAVE
 - PING
 - QUIT
 
@@ -19,9 +20,7 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 - Keep connection with client open
 - Integration tests
-- Flush data to disk
-  - Flush once every hour
-  - Create command to force flush
+- Flush data to disk once every hour
 - Define ttl to data
   - Implement EXPIRE and EX on GET
 - Support storing integers
@@ -66,20 +65,29 @@ $10
 Connection closed by foreign host.
 ```
 
-[0]: https://redis.io/
-[1]: https://redis.io/docs/reference/protocol-spec/
-
-### PING
-
-PING [Optional: message]
+### QUIT
 
 ```shell
 $ telnet 127.0.0.1 7777
 Trying 127.0.0.1...
 Connected to 127.0.0.1.
 Escape character is '^]'.
-PING
-+PONG
+QUIT
++OK
+Connection closed by foreign host.
+```
+
+### SAVE
+
+Saves a dump file with all the data in memory.
+
+```shell
+telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+SAVE
++OK
 Connection closed by foreign host.
 ```
 
@@ -105,3 +113,6 @@ QUIT
 +OK
 Connection closed by foreign host.
 ```
+
+[0]: https://redis.io/
+[1]: https://redis.io/docs/reference/protocol-spec/
