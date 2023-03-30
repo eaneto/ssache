@@ -87,7 +87,6 @@ const CRLF: &str = "\r\n";
 #[derive(Debug, Clone)]
 struct NoDataReceivedError;
 
-// TODO Add integration tests
 fn handle_request(
     mut stream: TcpStream,
     database: Arc<Vec<Mutex<HashMap<String, String>>>>,
@@ -97,6 +96,7 @@ fn handle_request(
     // If no data is received in the command line then there's no need
     // to return an error to the client.
     if command_line.is_err() {
+        debug!("No data received");
         return Ok(());
     }
 

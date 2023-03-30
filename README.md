@@ -20,7 +20,6 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 ## TODOs
 
 - Keep connection with client open
-- Integration tests
 - Flush data to disk once every hour
 - Define ttl to data
   - Implement EXPIRE and EX on GET
@@ -34,6 +33,12 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 ```shell
 cargo build
 ```
+
+## Tests
+
+There are unit tests written in rust and integration tests written in
+python. These tests can be ran executing the `tests/test_runner.py`
+script.
 
 ## Examples
 
