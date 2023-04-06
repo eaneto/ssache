@@ -11,7 +11,7 @@ def initialize_ssache():
     os.environ["RUST_LOG"] = "info"
     command = ["./target/release/ssache"]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    # TODO: Insteaed of sleeping, loop waiting for the sucess log
+    # TODO: Instead of sleeping, loop waiting for the sucess log
     time.sleep(0.5)
     return process.pid
 
@@ -28,6 +28,11 @@ class SsacheClient:
     def connect(self):
         self.__socket = s.socket(s.AF_INET, s.SOCK_STREAM)
         self.__socket.connect((self.IP, self.PORT))
+
+    def unknown(self):
+        request = f"UNKNOWN{CRLF}"
+        self.__socket.send(request.encode("utf-8"))
+        return self.__socket.recv(1024)
 
     def ping(self, message=None):
         if message is None:

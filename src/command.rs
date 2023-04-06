@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn parse_unkown_command() {
         let mut command_line = Vec::new();
-        command_line.push("UNKOWN".to_string());
+        command_line.push("UNKNOWN".to_string());
 
         let result = parse_command(command_line);
 
