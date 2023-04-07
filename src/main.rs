@@ -5,9 +5,11 @@ use std::{
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use clap::Parser;
+use clokwerk::{AsyncScheduler, TimeUnits};
 use log::{debug, error, info, warn};
 use ssache::ThreadPool;
 
@@ -24,11 +26,44 @@ struct Args {
     thread_pool_size: usize,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
     let args = Args::parse();
+
+    let database = create_sharded_database(args.thread_pool_size);
+
+    let mut scheduler = AsyncScheduler::new();
+
+    let database_clone = database.clone();
+    // TODO Allow this to be configurable
+    scheduler.every(1.hours()).run(move || {
+        // Clones the database arc, and moves the cloned arc to the
+        // async block, this way the arc cloned each time in the async
+        // block is a clone of the first clone and the original
+        // database isn't dropped.
+        let database = database_clone.clone();
+        async move {
+            save(database);
+        }
+    });
+
+    // Spawns a thread on background to dump the database to a file
+    // from time to time.
+    tokio::spawn(async move {
+        loop {
+            scheduler.run_pending().await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+
+    let pool = match ThreadPool::new(args.thread_pool_size) {
+        Ok(pool) => pool,
+        Err(_) => panic!("Invalid number of threads for the thread pool."),
+    };
+
     let listener = start_server(&args);
-    handle_connections(listener, &args);
+    handle_connections(listener, database, &pool);
 }
 
 fn start_server(args: &Args) -> TcpListener {
@@ -45,15 +80,11 @@ fn start_server(args: &Args) -> TcpListener {
     listener
 }
 
-fn handle_connections(listener: TcpListener, args: &Args) {
-    // TODO Save changes on disk once an hour
-    let database = create_sharded_database(args.thread_pool_size);
-
-    let pool = match ThreadPool::new(args.thread_pool_size) {
-        Ok(pool) => pool,
-        Err(_) => panic!("Invalid number of threads for the thread pool."),
-    };
-
+fn handle_connections(
+    listener: TcpListener,
+    database: Arc<Vec<Mutex<HashMap<String, String>>>>,
+    pool: &ThreadPool,
+) {
     // TODO Keep connection open with client.
     for stream in listener.incoming() {
         let stream = match stream {
@@ -139,47 +170,17 @@ fn handle_request(
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
-        command::Command::Expire { key, time } => {
+        command::Command::Expire {
+            key: _key,
+            time: _time,
+        } => {
             debug!("WIP");
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
         command::Command::Save => {
-            debug!("Initiating save process");
-            // FIXME Terrible solution, duplicates all data already in
-            // memory.  I think the best way to solve this without
-            // memory duplication is to save only the reference to the
-            // keys and values on the joined_database map, then when
-            // the file is being created it's only necessary to follow
-            // the reference.
-            let mut joined_database: HashMap<String, String> = HashMap::new();
-            for i in 0..database.len() {
-                debug!("Initiating save process for shard {i}");
-                database[i].lock().unwrap().iter().for_each(|(key, value)| {
-                    joined_database.insert(key.clone(), value.clone());
-                });
-            }
-
-            let response = match File::create("dump.ssch") {
-                Ok(mut file) => match bincode::serialize(&joined_database) {
-                    Ok(serialized_database) => match file.write_all(&serialized_database) {
-                        Ok(()) => format!("+OK{CRLF}"),
-                        Err(e) => {
-                            debug!("Error writing the dump to the file {:?}", e);
-                            format!("-ERROR Unable to write the data to the dump file{CRLF}")
-                        }
-                    },
-                    Err(e) => {
-                        debug!("Error serializing database into binary format {:?}", e);
-                        format!("-ERROR Unable to serialize data into binary format{CRLF}")
-                    }
-                },
-                Err(e) => {
-                    debug!("Error creating dump file {:?}", e);
-                    format!("-ERROR Unable to create dump file{CRLF}")
-                }
-            };
+            let response = save(database);
             stream.write_all(response.as_bytes()).unwrap();
             Ok(())
         }
@@ -266,4 +267,42 @@ fn parse_command_line_from_stream(
     }
 
     Ok(command_line)
+}
+
+/// Dumps the database into a single file with the data from all shards.
+fn save(database: Arc<Vec<Mutex<HashMap<String, String>>>>) -> String {
+    debug!("Initiating save process");
+    // FIXME Terrible solution, duplicates all data already in
+    // memory.  I think the best way to solve this without
+    // memory duplication is to save only the reference to the
+    // keys and values on the joined_database map, then when
+    // the file is being created it's only necessary to follow
+    // the reference.
+    let mut joined_database: HashMap<String, String> = HashMap::new();
+    for i in 0..database.len() {
+        debug!("Initiating save process for shard {i}");
+        database[i].lock().unwrap().iter().for_each(|(key, value)| {
+            joined_database.insert(key.clone(), value.clone());
+        });
+    }
+
+    match File::create("dump.ssch") {
+        Ok(mut file) => match bincode::serialize(&joined_database) {
+            Ok(serialized_database) => match file.write_all(&serialized_database) {
+                Ok(()) => format!("+OK{CRLF}"),
+                Err(e) => {
+                    debug!("Error writing the dump to the file {:?}", e);
+                    format!("-ERROR Unable to write the data to the dump file{CRLF}")
+                }
+            },
+            Err(e) => {
+                debug!("Error serializing database into binary format {:?}", e);
+                format!("-ERROR Unable to serialize data into binary format{CRLF}")
+            }
+        },
+        Err(e) => {
+            debug!("Error creating dump file {:?}", e);
+            format!("-ERROR Unable to create dump file{CRLF}")
+        }
+    }
 }
