@@ -17,9 +17,9 @@ struct Args {
     #[arg(short, long, default_value_t = 7777)]
     port: u16,
 
-    // Size of the thread pool to process requests
+    // Number of shards
     #[arg(short, long, default_value_t = 8)]
-    thread_pool_size: usize,
+    shards: usize,
 }
 
 #[tokio::main]
@@ -27,7 +27,7 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let database = storage::create_sharded_database(args.thread_pool_size);
+    let database = storage::create_sharded_database(args.shards);
 
     let mut scheduler = AsyncScheduler::new();
 
