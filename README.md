@@ -19,7 +19,6 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 ## TODOs
 
-- Keep connection with client open
 - Define ttl to data
   - Implement EXPIRE and EX on GET
 - Support storing integers
