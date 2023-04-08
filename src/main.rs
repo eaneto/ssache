@@ -83,7 +83,7 @@ async fn handle_connections(
                     process_connection_loop(database_clone, &mut stream).await;
                 });
             }
-            Err(_e) => println!("ahh"),
+            Err(e) => warn!("Error listening to socket, {}", e),
         }
     }
 }
