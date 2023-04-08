@@ -2,16 +2,17 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fs::{self, File},
     hash::{Hash, Hasher},
-    io::{BufRead, BufReader, Write},
-    net::{TcpListener, TcpStream},
-    sync::{Arc, Mutex},
+    io::Write,
+    sync::Arc,
     time::Duration,
 };
 
 use clap::Parser;
 use clokwerk::{AsyncScheduler, TimeUnits};
-use log::{debug, error, info, warn};
-use ssache::ThreadPool;
+use log::{debug, info, warn};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 
 mod command;
 
@@ -44,7 +45,7 @@ async fn main() {
         // database isn't dropped.
         let database = database_clone.clone();
         async move {
-            save(database);
+            save(database).await;
         }
     });
 
@@ -57,20 +58,15 @@ async fn main() {
         }
     });
 
-    let pool = match ThreadPool::new(args.thread_pool_size) {
-        Ok(pool) => pool,
-        Err(_) => panic!("Invalid number of threads for the thread pool."),
-    };
-
-    let listener = start_server(&args);
-    handle_connections(listener, database, &pool);
+    let listener = start_server(&args).await;
+    handle_connections(listener, database).await;
 }
 
-fn start_server(args: &Args) -> TcpListener {
+async fn start_server(args: &Args) -> TcpListener {
     info!("Ssache is starting");
 
     let port = args.port;
-    let listener = match TcpListener::bind(format!("127.0.0.1:{port}")) {
+    let listener = match TcpListener::bind(format!("127.0.0.1:{port}")).await {
         Ok(listener) => listener,
         Err(e) => panic!("Unable to start ssache on port {port}. Error = {:?}", e),
     };
@@ -80,27 +76,22 @@ fn start_server(args: &Args) -> TcpListener {
     listener
 }
 
-fn handle_connections(
+async fn handle_connections(
     listener: TcpListener,
     database: Arc<Vec<Mutex<HashMap<String, String>>>>,
-    pool: &ThreadPool,
 ) {
-    // TODO Keep connection open with client.
-    for stream in listener.incoming() {
-        let stream = match stream {
-            Ok(stream) => stream,
-            Err(_) => continue,
-        };
+    loop {
+        match listener.accept().await {
+            Ok((stream, _addr)) => {
+                let database_clone = database.clone();
 
-        let database_clone = database.clone();
-        let result = pool.execute(move || {
-            if handle_request(stream, database_clone).is_err() {
-                warn!("Error executing tcp stream");
-            };
-        });
-
-        if result.is_err() {
-            error!("Error sending stream to thread pool executor")
+                tokio::spawn(async move {
+                    if handle_request(stream, database_clone).await.is_err() {
+                        warn!("Error executing tcp stream");
+                    };
+                });
+            }
+            Err(_e) => println!("ahh"),
         }
     }
 }
@@ -118,12 +109,12 @@ const CRLF: &str = "\r\n";
 #[derive(Debug, Clone)]
 struct NoDataReceivedError;
 
-fn handle_request(
+async fn handle_request(
     mut stream: TcpStream,
     database: Arc<Vec<Mutex<HashMap<String, String>>>>,
 ) -> Result<(), command::NotEnoughParametersError> {
     let buf_reader = BufReader::new(&mut stream);
-    let command_line = parse_command_line_from_stream(buf_reader);
+    let command_line = parse_command_line_from_stream(buf_reader).await;
     // If no data is received in the command line then there's no need
     // to return an error to the client.
     if command_line.is_err() {
@@ -134,7 +125,7 @@ fn handle_request(
     let command = command::parse_command(command_line.unwrap());
 
     if let Err(e) = command {
-        stream.write_all(e.message.as_bytes()).unwrap();
+        stream.write_all(e.message.as_bytes()).await.unwrap();
         return Err(e);
     }
 
@@ -143,31 +134,31 @@ fn handle_request(
         command::Command::Get { key } => {
             let shard_key = get_shard_key(&key, database.len());
             // TODO Remove locks for reading.
-            let shard = database[shard_key].lock().unwrap();
+            let shard = database[shard_key].lock().await;
 
             return match shard.get(&key) {
                 Some(value) => {
                     debug!("found {:?} for {:?} on shard {:?}", value, key, shard_key);
                     let size = value.len();
                     let response = format!("${size}{CRLF}+{value}{CRLF}");
-                    stream.write_all(response.as_bytes()).unwrap();
+                    stream.write_all(response.as_bytes()).await.unwrap();
                     Ok(())
                 }
                 None => {
                     debug!("value not found for {:?} on shard {:?}", key, shard_key);
                     let response = format!("$-1{CRLF}");
-                    stream.write_all(response.as_bytes()).unwrap();
+                    stream.write_all(response.as_bytes()).await.unwrap();
                     Ok(())
                 }
             };
         }
         command::Command::Set { key, value } => {
             let shard_key = get_shard_key(&key, database.len());
-            let mut shard = database[shard_key].lock().unwrap();
+            let mut shard = database[shard_key].lock().await;
             shard.insert(key, value);
             debug!("value successfully set on shard {:?}", shard_key);
             let response = format!("+OK{CRLF}");
-            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Expire {
@@ -176,12 +167,12 @@ fn handle_request(
         } => {
             debug!("WIP");
             let response = format!("+OK{CRLF}");
-            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Save => {
-            let response = save(database);
-            stream.write_all(response.as_bytes()).unwrap();
+            let response = save(database).await;
+            stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Load => {
@@ -191,7 +182,7 @@ fn handle_request(
                         Ok(dump) => {
                             for (key, value) in dump {
                                 let shard_key = get_shard_key(&key, database.len());
-                                let mut shard = database[shard_key].lock().unwrap();
+                                let mut shard = database[shard_key].lock().await;
                                 shard.insert(key, value);
                             }
                             format!("+OK{CRLF}")
@@ -207,12 +198,12 @@ fn handle_request(
                     format!("-ERROR Unable to read dump file{CRLF}")
                 }
             };
-            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Quit => {
             let response = format!("+OK{CRLF}");
-            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Ping { message } => {
@@ -222,13 +213,13 @@ fn handle_request(
             } else {
                 format!("${size}{CRLF}+{message}{CRLF}")
             };
-            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Unknown => {
             debug!("Unknown command");
             let response = format!("-ERROR unknown command{CRLF}");
-            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
     }
@@ -244,19 +235,14 @@ fn get_shard_key(key: &String, database_size: usize) -> usize {
     hash as usize % database_size
 }
 
-fn parse_command_line_from_stream(
-    buf_reader: BufReader<&mut TcpStream>,
+async fn parse_command_line_from_stream(
+    mut buf_reader: BufReader<&mut TcpStream>,
 ) -> Result<Vec<String>, NoDataReceivedError> {
-    let command_line = buf_reader.lines().next();
-    if command_line.is_none() {
+    let mut command_line = String::new();
+    let result = buf_reader.read_line(&mut command_line).await;
+    if result.is_err() {
         return Err(NoDataReceivedError);
     }
-    let command_line = command_line.unwrap();
-    if let Err(_e) = command_line {
-        return Err(NoDataReceivedError);
-    }
-
-    let command_line = command_line.unwrap();
     let command_line = command_line.split_whitespace();
     let command_line: Vec<String> = command_line
         .into_iter()
@@ -270,7 +256,7 @@ fn parse_command_line_from_stream(
 }
 
 /// Dumps the database into a single file with the data from all shards.
-fn save(database: Arc<Vec<Mutex<HashMap<String, String>>>>) -> String {
+async fn save(database: Arc<Vec<Mutex<HashMap<String, String>>>>) -> String {
     debug!("Initiating save process");
     // FIXME Terrible solution, duplicates all data already in
     // memory.  I think the best way to solve this without
@@ -281,7 +267,7 @@ fn save(database: Arc<Vec<Mutex<HashMap<String, String>>>>) -> String {
     let mut joined_database: HashMap<String, String> = HashMap::new();
     for i in 0..database.len() {
         debug!("Initiating save process for shard {i}");
-        database[i].lock().unwrap().iter().for_each(|(key, value)| {
+        database[i].lock().await.iter().for_each(|(key, value)| {
             joined_database.insert(key.clone(), value.clone());
         });
     }
