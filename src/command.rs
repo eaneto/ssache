@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use crate::errors::SsacheErrorKind;
+
 use log::debug;
 
 #[derive(Debug, PartialEq)]
@@ -20,15 +22,9 @@ pub enum Command {
     Ping { message: String },
     Unknown,
 }
-
-#[derive(Debug, Clone)]
-pub struct NotEnoughParametersError {
-    pub message: String,
-}
-
 const CRLF: &str = "\r\n";
 
-pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughParametersError> {
+pub fn parse_command(command_line: Vec<String>) -> Result<Command, SsacheErrorKind> {
     let command = command_line.get(0).unwrap();
     if command.eq(&String::from("GET")) {
         if let Some(key) = command_line.get(1) {
@@ -38,7 +34,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
         } else {
             debug!("not enough parameters for GET command");
             let message = format!("-ERROR not enough parameters for GET{CRLF}");
-            Err(NotEnoughParametersError { message })
+            Err(SsacheErrorKind::NotEnoughParameters { message })
         }
     } else if command.eq(&String::from("SET")) {
         if let (Some(key), Some(_)) = (command_line.get(1), command_line.get(2)) {
@@ -49,7 +45,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
         } else {
             debug!("not enough parameters for SET command");
             let message = format!("-ERROR not enough parameters for SET{CRLF}");
-            Err(NotEnoughParametersError { message })
+            Err(SsacheErrorKind::NotEnoughParameters { message })
         }
     } else if command.eq(&String::from("EXPIRE")) {
         if let (Some(key), Some(time)) = (command_line.get(1), command_line.get(2)) {
@@ -63,7 +59,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, NotEnoughPara
         } else {
             debug!("not enough parameters for EXPIRE command");
             let message = format!("-ERROR not enough parameters for EXPIRE{CRLF}");
-            Err(NotEnoughParametersError { message })
+            Err(SsacheErrorKind::NotEnoughParameters { message })
         }
     } else if command.eq(&String::from("SAVE")) {
         Ok(Command::Save)
