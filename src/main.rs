@@ -15,6 +15,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 
 mod command;
+mod errors;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -76,26 +77,6 @@ async fn start_server(args: &Args) -> TcpListener {
     listener
 }
 
-async fn handle_connections(
-    listener: TcpListener,
-    database: Arc<Vec<Mutex<HashMap<String, String>>>>,
-) {
-    loop {
-        match listener.accept().await {
-            Ok((stream, _addr)) => {
-                let database_clone = database.clone();
-
-                tokio::spawn(async move {
-                    if handle_request(stream, database_clone).await.is_err() {
-                        warn!("Error executing tcp stream");
-                    };
-                });
-            }
-            Err(_e) => println!("ahh"),
-        }
-    }
-}
-
 fn create_sharded_database(num_shards: usize) -> Arc<Vec<Mutex<HashMap<String, String>>>> {
     let mut db = Vec::with_capacity(num_shards);
     for _ in 0..num_shards {
@@ -104,29 +85,60 @@ fn create_sharded_database(num_shards: usize) -> Arc<Vec<Mutex<HashMap<String, S
     Arc::new(db)
 }
 
+async fn handle_connections(
+    listener: TcpListener,
+    database: Arc<Vec<Mutex<HashMap<String, String>>>>,
+) {
+    loop {
+        match listener.accept().await {
+            Ok((mut stream, _addr)) => {
+                let database_clone = database.clone();
+
+                tokio::spawn(async move {
+                    loop {
+                        let database_clone = database_clone.clone();
+                        match handle_request(&mut stream, database_clone).await {
+                            Ok(_) => continue,
+                            Err(e) => {
+                                match e {
+                                    errors::SsacheErrorKind::NoDataReceived => break,
+                                    _ => {
+                                        warn!("Error executing stream");
+                                    }
+                                };
+                            }
+                        }
+                    }
+                });
+            }
+            Err(_e) => println!("ahh"),
+        }
+    }
+}
+
 const CRLF: &str = "\r\n";
 
-#[derive(Debug, Clone)]
-struct NoDataReceivedError;
-
 async fn handle_request(
-    mut stream: TcpStream,
+    mut stream: &mut TcpStream,
     database: Arc<Vec<Mutex<HashMap<String, String>>>>,
-) -> Result<(), command::NotEnoughParametersError> {
+) -> Result<(), errors::SsacheErrorKind> {
     let buf_reader = BufReader::new(&mut stream);
     let command_line = parse_command_line_from_stream(buf_reader).await;
-    // If no data is received in the command line then there's no need
-    // to return an error to the client.
     if command_line.is_err() {
         debug!("No data received");
-        return Ok(());
+        return Err(command_line.err().unwrap());
     }
 
     let command = command::parse_command(command_line.unwrap());
 
     if let Err(e) = command {
-        stream.write_all(e.message.as_bytes()).await.unwrap();
-        return Err(e);
+        return match e {
+            errors::SsacheErrorKind::NotEnoughParameters { message } => {
+                stream.write_all(message.as_bytes()).await.unwrap();
+                Err(errors::SsacheErrorKind::NotEnoughParameters { message })
+            }
+            _ => return Err(e),
+        };
     }
 
     let command = command.unwrap();
@@ -204,6 +216,7 @@ async fn handle_request(
         command::Command::Quit => {
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).await.unwrap();
+            stream.shutdown().await.unwrap();
             Ok(())
         }
         command::Command::Ping { message } => {
@@ -236,12 +249,12 @@ fn get_shard_key(key: &String, database_size: usize) -> usize {
 }
 
 async fn parse_command_line_from_stream(
-    mut buf_reader: BufReader<&mut TcpStream>,
-) -> Result<Vec<String>, NoDataReceivedError> {
+    mut buf_reader: BufReader<&mut &mut TcpStream>,
+) -> Result<Vec<String>, errors::SsacheErrorKind> {
     let mut command_line = String::new();
     let result = buf_reader.read_line(&mut command_line).await;
     if result.is_err() {
-        return Err(NoDataReceivedError);
+        return Err(errors::SsacheErrorKind::NoDataReceived);
     }
     let command_line = command_line.split_whitespace();
     let command_line: Vec<String> = command_line
@@ -249,7 +262,7 @@ async fn parse_command_line_from_stream(
         .map(|slice| slice.to_string())
         .collect();
     if command_line.get(0).is_none() {
-        return Err(NoDataReceivedError);
+        return Err(errors::SsacheErrorKind::NoDataReceived);
     }
 
     Ok(command_line)
