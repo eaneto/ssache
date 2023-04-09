@@ -13,15 +13,15 @@ mod storage;
 
 #[derive(Parser, Debug)]
 struct Args {
-    // Port to run the server
+    /// Port to run the server
     #[arg(short, long, default_value_t = 7777)]
     port: u16,
 
-    // Number of shards
+    /// Number of shards
     #[arg(short, long, default_value_t = 8)]
     shards: usize,
 
-    // Enable the background job to save the data to disk
+    /// Enable the scheduled background job to save the data to disk
     #[arg(short, long, default_value_t = false)]
     enable_save_job: bool,
 }
