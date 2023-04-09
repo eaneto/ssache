@@ -23,7 +23,11 @@ struct Args {
 
     /// Enable the scheduled background job to save the data to disk
     #[arg(short, long, default_value_t = false)]
-    enable_save_job: bool,
+    enable_scheduled_save: bool,
+
+    /// The interval of the scheduled save job in minutes
+    #[arg(long, default_value_t = 60)]
+    save_job_interval: u32,
 }
 
 #[tokio::main]
@@ -33,27 +37,28 @@ async fn main() {
 
     let database = storage::create_sharded_database(args.shards);
 
-    if args.enable_save_job {
-        enable_save_job(database.clone());
+    if args.enable_scheduled_save {
+        enable_scheduled_save_job(database.clone(), &args);
     }
 
     let listener = start_server(&args).await;
     handle_connections(listener, database).await;
 }
 
-fn enable_save_job(database: Arc<Vec<Mutex<HashMap<String, String>>>>) {
+fn enable_scheduled_save_job(database: Arc<Vec<Mutex<HashMap<String, String>>>>, args: &Args) {
     let mut scheduler = AsyncScheduler::new();
-    // TODO Allow this to be configurable
-    scheduler.every(1.hours()).run(move || {
-        // Clones the database arc, and moves the cloned arc to the
-        // async block, this way the arc cloned each time in the async
-        // block is a clone of the first clone and the original
-        // database isn't dropped.
-        let database = database.clone();
-        async move {
-            storage::save(database).await;
-        }
-    });
+    scheduler
+        .every(args.save_job_interval.minutes())
+        .run(move || {
+            // Clones the database arc, and moves the cloned arc to the
+            // async block, this way the arc cloned each time in the async
+            // block is a clone of the first clone and the original
+            // database isn't dropped.
+            let database = database.clone();
+            async move {
+                storage::save(database).await;
+            }
+        });
 
     // Spawns a thread on background to dump the database to a file
     // from time to time.
