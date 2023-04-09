@@ -20,6 +20,10 @@ struct Args {
     // Number of shards
     #[arg(short, long, default_value_t = 8)]
     shards: usize,
+
+    // Enable the background job to save the data to disk
+    #[arg(short, long, default_value_t = false)]
+    enable_save_job: bool,
 }
 
 #[tokio::main]
@@ -29,16 +33,23 @@ async fn main() {
 
     let database = storage::create_sharded_database(args.shards);
 
-    let mut scheduler = AsyncScheduler::new();
+    if args.enable_save_job {
+        enable_save_job(database.clone());
+    }
 
-    let database_clone = database.clone();
+    let listener = start_server(&args).await;
+    handle_connections(listener, database).await;
+}
+
+fn enable_save_job(database: Arc<Vec<Mutex<HashMap<String, String>>>>) {
+    let mut scheduler = AsyncScheduler::new();
     // TODO Allow this to be configurable
     scheduler.every(1.hours()).run(move || {
         // Clones the database arc, and moves the cloned arc to the
         // async block, this way the arc cloned each time in the async
         // block is a clone of the first clone and the original
         // database isn't dropped.
-        let database = database_clone.clone();
+        let database = database.clone();
         async move {
             storage::save(database).await;
         }
@@ -52,9 +63,6 @@ async fn main() {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     });
-
-    let listener = start_server(&args).await;
-    handle_connections(listener, database).await;
 }
 
 async fn start_server(args: &Args) -> TcpListener {
