@@ -9,7 +9,7 @@ pub enum SsacheErrorKind {
 
 impl fmt::Display for SsacheErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SuperError is here!")
+        write!(f, "Ssache error")
     }
 }
 
