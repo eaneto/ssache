@@ -1,3 +1,5 @@
+use std::process::exit;
+use std::sync::mpsc;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use clap::Parser;
@@ -40,6 +42,16 @@ async fn main() {
     if args.enable_scheduled_save {
         enable_scheduled_save_job(database.clone(), &args);
     }
+
+    tokio::spawn(async move {
+        let (tx, rx) = mpsc::channel();
+
+        ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
+            .expect("Error setting Ctrl-C handler");
+
+        rx.recv().expect("Could not receive from channel.");
+        exit(0);
+    });
 
     let listener = start_server(&args).await;
     handle_connections(listener, database).await;
