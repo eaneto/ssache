@@ -68,7 +68,8 @@ fn enable_scheduled_save_job(storage: Arc<ShardedStorage>, args: &Args) {
             // storage isn't dropped.
             let storage = storage.clone();
             async move {
-                storage.save().await;
+                // Ignores if there are any errors
+                let _ = storage.save().await;
             }
         });
 
@@ -156,12 +157,21 @@ async fn handle_request(
     let command = command.unwrap();
     match command {
         command::Command::Get { key } => {
-            let response = storage.get(key).await;
+            let response = match storage.get(key).await {
+                Some(value) => {
+                    let size = value.len();
+                    format!("${size}{CRLF}+{}{CRLF}", value)
+                }
+                None => {
+                    format!("$-1{CRLF}")
+                }
+            };
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Set { key, value } => {
-            let response = storage.set(key, value).await;
+            storage.set(key, value).await;
+            let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
@@ -175,12 +185,35 @@ async fn handle_request(
             Ok(())
         }
         command::Command::Save => {
-            let response = storage.save().await;
+            let response = match storage.save().await {
+                Ok(()) => format!("+OK{CRLF}"),
+                Err(e) => match e {
+                    errors::SaveErrorKind::UnableToCreateDump => {
+                        format!("-ERROR Unable to create dump file{CRLF}")
+                    }
+                    errors::SaveErrorKind::UnableToSerializeIntoBinary => {
+                        format!("-ERROR Unable to serialize data into binary format{CRLF}")
+                    }
+                    errors::SaveErrorKind::UnableToWriteToDump => {
+                        format!("-ERROR Unable to write the data to the dump file{CRLF}")
+                    }
+                },
+            };
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Load => {
-            let response = storage.load().await;
+            let response = match storage.load().await {
+                Ok(()) => format!("+OK{CRLF}"),
+                Err(e) => match e {
+                    errors::LoadErrorKind::UnableToDeserializaData => {
+                        format!("-ERROR Unable to deserialize data into hashmap format{CRLF}")
+                    }
+                    errors::LoadErrorKind::UnableToReadDump => {
+                        format!("-ERROR Unable to read dump file{CRLF}")
+                    }
+                },
+            };
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
