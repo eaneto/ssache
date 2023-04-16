@@ -1,13 +1,13 @@
 use std::process::exit;
 use std::sync::mpsc;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use clokwerk::{AsyncScheduler, TimeUnits};
 use log::{debug, info, warn};
+use storage::ShardedStorage;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
 
 mod command;
 mod errors;
@@ -37,10 +37,10 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let database = storage::create_sharded_database(args.shards);
+    let storage = Arc::new(ShardedStorage::new(args.shards));
 
     if args.enable_scheduled_save {
-        enable_scheduled_save_job(database.clone(), &args);
+        enable_scheduled_save_job(storage.clone(), &args);
     }
 
     tokio::spawn(async move {
@@ -54,26 +54,26 @@ async fn main() {
     });
 
     let listener = start_server(&args).await;
-    handle_connections(listener, database).await;
+    handle_connections(listener, storage).await;
 }
 
-fn enable_scheduled_save_job(database: Arc<Vec<Mutex<HashMap<String, String>>>>, args: &Args) {
+fn enable_scheduled_save_job(storage: Arc<ShardedStorage>, args: &Args) {
     let mut scheduler = AsyncScheduler::new();
     scheduler
         .every(args.save_job_interval.minutes())
         .run(move || {
-            // Clones the database arc, and moves the cloned arc to the
+            // Clones the storage arc, and moves the cloned arc to the
             // async block, this way the arc cloned each time in the async
             // block is a clone of the first clone and the original
-            // database isn't dropped.
-            let database = database.clone();
+            // storage isn't dropped.
+            let storage = storage.clone();
             async move {
-                storage::save(database).await;
+                storage.save().await;
             }
         });
 
-    // Spawns a thread on background to dump the database to a file
-    // from time to time.
+    // Spawns a thread on background to dump the in-memory storage to
+    // a file from time to time.
     tokio::spawn(async move {
         loop {
             scheduler.run_pending().await;
@@ -96,16 +96,13 @@ async fn start_server(args: &Args) -> TcpListener {
     listener
 }
 
-async fn handle_connections(
-    listener: TcpListener,
-    database: Arc<Vec<Mutex<HashMap<String, String>>>>,
-) {
+async fn handle_connections(listener: TcpListener, storage: Arc<ShardedStorage>) {
     loop {
         match listener.accept().await {
             Ok((mut stream, _)) => {
-                let database_clone = database.clone();
+                let storage_clone = storage.clone();
                 tokio::spawn(async move {
-                    process_connection_loop(database_clone, &mut stream).await;
+                    process_connection_loop(storage_clone, &mut stream).await;
                 });
             }
             Err(e) => warn!("Error listening to socket, {}", e),
@@ -116,13 +113,10 @@ async fn handle_connections(
 /// Generates an infinte loop with the connection to handle the
 /// requests. The loop is only broken if the request is an empty
 /// stream.
-async fn process_connection_loop(
-    database: Arc<Vec<Mutex<HashMap<String, String>>>>,
-    stream: &mut TcpStream,
-) {
+async fn process_connection_loop(storage: Arc<ShardedStorage>, stream: &mut TcpStream) {
     loop {
-        let database_clone = database.clone();
-        match handle_request(stream, database_clone).await {
+        let storage_clone = storage.clone();
+        match handle_request(stream, storage_clone).await {
             Ok(_) => continue,
             Err(e) => {
                 match e {
@@ -138,7 +132,7 @@ const CRLF: &str = "\r\n";
 
 async fn handle_request(
     mut stream: &mut TcpStream,
-    database: Arc<Vec<Mutex<HashMap<String, String>>>>,
+    storage: Arc<ShardedStorage>,
 ) -> Result<(), errors::SsacheErrorKind> {
     let buf_reader = BufReader::new(&mut stream);
     let command_line = parse_command_line_from_stream(buf_reader).await;
@@ -162,12 +156,12 @@ async fn handle_request(
     let command = command.unwrap();
     match command {
         command::Command::Get { key } => {
-            let response = storage::get(database, key).await;
+            let response = storage.get(key).await;
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Set { key, value } => {
-            let response = storage::set(database, key, value).await;
+            let response = storage.set(key, value).await;
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
@@ -181,12 +175,12 @@ async fn handle_request(
             Ok(())
         }
         command::Command::Save => {
-            let response = storage::save(database).await;
+            let response = storage.save().await;
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
         command::Command::Load => {
-            let response = storage::load(database).await;
+            let response = storage.load().await;
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
