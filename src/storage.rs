@@ -9,7 +9,7 @@ use std::{
 use log::debug;
 use tokio::sync::Mutex;
 
-const CRLF: &str = "\r\n";
+use crate::errors::{LoadErrorKind, SaveErrorKind};
 
 struct Entry {
     value: String,
@@ -29,7 +29,7 @@ impl ShardedStorage {
         ShardedStorage { shards }
     }
 
-    pub async fn get(&self, key: String) -> String {
+    pub async fn get(&self, key: String) -> Option<String> {
         let shard_key = self.get_shard_key(&key);
         // TODO Remove locks for reading.
         let shard = self.shards[shard_key].lock().await;
@@ -40,17 +40,16 @@ impl ShardedStorage {
                     "found {:?} for {:?} on shard {:?}",
                     entry.value, key, shard_key
                 );
-                let size = entry.value.len();
-                format!("${size}{CRLF}+{}{CRLF}", entry.value)
+                Some(entry.value.clone())
             }
             None => {
                 debug!("value not found for {:?} on shard {:?}", key, shard_key);
-                format!("$-1{CRLF}")
+                None
             }
         }
     }
 
-    pub async fn set(&self, key: String, value: String) -> String {
+    pub async fn set(&self, key: String, value: String) -> () {
         let shard_key = self.get_shard_key(&key);
         let mut shard = self.shards[shard_key].lock().await;
         shard.insert(
@@ -61,12 +60,11 @@ impl ShardedStorage {
             },
         );
         debug!("value successfully set on shard {:?}", shard_key);
-        format!("+OK{CRLF}")
     }
 
     /// Dumps the in-memory storage into a single file with the data
     /// from all shards.
-    pub async fn save(&self) -> String {
+    pub async fn save(&self) -> Result<(), SaveErrorKind> {
         debug!("Initiating save process");
         // FIXME Terrible solution, duplicates all data already in
         // memory.  I think the best way to solve this without memory
@@ -84,25 +82,25 @@ impl ShardedStorage {
         match File::create("dump.ssch") {
             Ok(mut file) => match bincode::serialize(&joined_shards) {
                 Ok(serialized_storage) => match file.write_all(&serialized_storage) {
-                    Ok(()) => format!("+OK{CRLF}"),
+                    Ok(()) => Ok(()),
                     Err(e) => {
                         debug!("Error writing the dump to the file {:?}", e);
-                        format!("-ERROR Unable to write the data to the dump file{CRLF}")
+                        Err(SaveErrorKind::UnableToWriteToDump)
                     }
                 },
                 Err(e) => {
                     debug!("Error serializing storage into binary format {:?}", e);
-                    format!("-ERROR Unable to serialize data into binary format{CRLF}")
+                    Err(SaveErrorKind::UnableToSerializeIntoBinary)
                 }
             },
             Err(e) => {
                 debug!("Error creating dump file {:?}", e);
-                format!("-ERROR Unable to create dump file{CRLF}")
+                Err(SaveErrorKind::UnableToCreateDump)
             }
         }
     }
 
-    pub async fn load(&self) -> String {
+    pub async fn load(&self) -> Result<(), LoadErrorKind> {
         match fs::read("dump.ssch") {
             Ok(file_content) => {
                 match bincode::deserialize::<HashMap<String, String>>(&file_content) {
@@ -118,20 +116,20 @@ impl ShardedStorage {
                                 },
                             );
                         }
-                        format!("+OK{CRLF}")
+                        Ok(())
                     }
                     Err(e) => {
                         debug!(
                             "Error deserializing dump content into hashmap format {:?}",
                             e
                         );
-                        format!("-ERROR Unable to deserialize data into hashmap format{CRLF}")
+                        Err(LoadErrorKind::UnableToDeserializaData)
                     }
                 }
             }
             Err(e) => {
                 debug!("Error reading dump file {:?}", e);
-                format!("-ERROR Unable to read dump file{CRLF}")
+                Err(LoadErrorKind::UnableToReadDump)
             }
         }
     }
