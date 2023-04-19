@@ -7,7 +7,7 @@ use std::{
 };
 
 use log::debug;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 use crate::errors::{LoadErrorKind, SaveErrorKind};
 
@@ -17,22 +17,21 @@ struct Entry {
 }
 
 pub struct ShardedStorage {
-    shards: Vec<Mutex<HashMap<String, Entry>>>,
+    shards: Vec<RwLock<HashMap<String, Entry>>>,
 }
 
 impl ShardedStorage {
     pub fn new(num_shards: usize) -> ShardedStorage {
         let mut shards = Vec::with_capacity(num_shards);
         for _ in 0..num_shards {
-            shards.push(Mutex::new(HashMap::new()));
+            shards.push(RwLock::new(HashMap::new()));
         }
         ShardedStorage { shards }
     }
 
     pub async fn get(&self, key: String) -> Option<String> {
         let shard_key = self.get_shard_key(&key);
-        // TODO Remove locks for reading.
-        let shard = self.shards[shard_key].lock().await;
+        let shard = self.shards[shard_key].read().await;
 
         match shard.get(&key) {
             Some(entry) => {
@@ -49,9 +48,9 @@ impl ShardedStorage {
         }
     }
 
-    pub async fn set(&self, key: String, value: String) -> () {
+    pub async fn set(&self, key: String, value: String) {
         let shard_key = self.get_shard_key(&key);
-        let mut shard = self.shards[shard_key].lock().await;
+        let mut shard = self.shards[shard_key].write().await;
         shard.insert(
             key,
             Entry {
@@ -74,7 +73,7 @@ impl ShardedStorage {
         let mut joined_shards: HashMap<String, String> = HashMap::new();
         for i in 0..self.shards.len() {
             debug!("Initiating save process for shard {i}");
-            self.shards[i].lock().await.iter().for_each(|(key, entry)| {
+            self.shards[i].read().await.iter().for_each(|(key, entry)| {
                 joined_shards.insert(key.clone(), entry.value.clone());
             });
         }
@@ -107,7 +106,7 @@ impl ShardedStorage {
                     Ok(dump) => {
                         for (key, value) in dump {
                             let shard_key = self.get_shard_key(&key);
-                            let mut shard = self.shards[shard_key].lock().await;
+                            let mut shard = self.shards[shard_key].write().await;
                             shard.insert(
                                 key,
                                 Entry {
