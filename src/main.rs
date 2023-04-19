@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use clokwerk::{AsyncScheduler, TimeUnits};
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use storage::ShardedStorage;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -53,8 +53,29 @@ async fn main() {
         exit(0);
     });
 
+    enable_expiration_job(storage.clone());
+
     let listener = start_server(&args).await;
     handle_connections(listener, storage).await;
+}
+
+fn enable_expiration_job(storage: Arc<ShardedStorage>) {
+    let mut scheduler = AsyncScheduler::new();
+    scheduler.every(1.seconds()).run(move || {
+        let storage = storage.clone();
+        async move {
+            trace!("Checking for expired keys");
+            storage.check_expirations().await;
+            storage.remove_expiration().await;
+        }
+    });
+
+    tokio::spawn(async move {
+        loop {
+            scheduler.run_pending().await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    });
 }
 
 fn enable_scheduled_save_job(storage: Arc<ShardedStorage>, args: &Args) {
@@ -175,11 +196,8 @@ async fn handle_request(
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
-        command::Command::Expire {
-            key: _key,
-            time: _time,
-        } => {
-            debug!("WIP");
+        command::Command::Expire { key, time } => {
+            storage.set_expiration(key, time).await;
             let response = format!("+OK{CRLF}");
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())

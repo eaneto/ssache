@@ -12,6 +12,7 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 - GET
 - SET
+- EXPIRE
 - SAVE
 - LOAD
 - PING
@@ -19,8 +20,6 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 ## TODOs
 
-- Define ttl to data
-  - Implement EXPIRE and EX on GET
 - Support storing integers
   - Implement INCR and DECR
 - Distributed storage
@@ -51,7 +50,6 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 SET key some-value
 +OK
-Connection closed by foreign host.
 ```
 
 ### GET
@@ -66,7 +64,21 @@ Escape character is '^]'.
 GET key
 $10
 +some-value
-Connection closed by foreign host.
+```
+
+### EXPIRE
+
+EXPIRE [key] [ttl]
+
+Sets expiration time for a key, the ttl is set in milliseconds.
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+EXPIRE key 1000
++OK
 ```
 
 ### QUIT
@@ -78,7 +90,6 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 QUIT
 +OK
-Connection closed by foreign host.
 ```
 
 ### SAVE
@@ -92,7 +103,6 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 SAVE
 +OK
-Connection closed by foreign host.
 ```
 
 ### LOAD
@@ -106,7 +116,6 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 LOAD
 +OK
-Connection closed by foreign host.
 ```
 ### PING
 
@@ -119,7 +128,6 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 PING
 +PONG
-Connection closed by foreign host.
 ```
 
 ```shell
@@ -130,7 +138,6 @@ Escape character is '^]'.
 PING message
 $7
 +message
-Connection closed by foreign host.
 ```
 
 ### QUIT
@@ -142,7 +149,6 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 QUIT
 +OK
-Connection closed by foreign host.
 ```
 
 [0]: https://redis.io/
