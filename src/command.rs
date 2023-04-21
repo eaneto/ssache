@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::errors::SsacheErrorKind;
+use crate::errors::SsacheError;
 
 use log::debug;
 
@@ -24,7 +24,7 @@ pub enum Command {
 }
 const CRLF: &str = "\r\n";
 
-pub fn parse_command(command_line: Vec<String>) -> Result<Command, SsacheErrorKind> {
+pub fn parse_command(command_line: Vec<String>) -> Result<Command, SsacheError> {
     let command = command_line.get(0).unwrap();
     if command.eq(&String::from("GET")) {
         if let Some(key) = command_line.get(1) {
@@ -34,7 +34,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, SsacheErrorKi
         } else {
             debug!("not enough parameters for GET command");
             let message = format!("-ERROR not enough parameters for GET{CRLF}");
-            Err(SsacheErrorKind::NotEnoughParameters { message })
+            Err(SsacheError::NotEnoughParameters { message })
         }
     } else if command.eq(&String::from("SET")) {
         if let (Some(key), Some(_)) = (command_line.get(1), command_line.get(2)) {
@@ -45,7 +45,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, SsacheErrorKi
         } else {
             debug!("not enough parameters for SET command");
             let message = format!("-ERROR not enough parameters for SET{CRLF}");
-            Err(SsacheErrorKind::NotEnoughParameters { message })
+            Err(SsacheError::NotEnoughParameters { message })
         }
     } else if command.eq(&String::from("EXPIRE")) {
         if let (Some(key), Some(time)) = (command_line.get(1), command_line.get(2)) {
@@ -59,7 +59,7 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, SsacheErrorKi
         } else {
             debug!("not enough parameters for EXPIRE command");
             let message = format!("-ERROR not enough parameters for EXPIRE{CRLF}");
-            Err(SsacheErrorKind::NotEnoughParameters { message })
+            Err(SsacheError::NotEnoughParameters { message })
         }
     } else if command.eq(&String::from("SAVE")) {
         Ok(Command::Save)

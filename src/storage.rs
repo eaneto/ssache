@@ -9,7 +9,7 @@ use std::{
 use log::debug;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::errors::{LoadErrorKind, SaveErrorKind};
+use crate::errors::{LoadError, SaveError};
 
 struct Entry {
     value: String,
@@ -69,7 +69,7 @@ impl ShardedStorage {
 
     /// Dumps the in-memory storage into a single file with the data
     /// from all shards.
-    pub async fn save(&self) -> Result<(), SaveErrorKind> {
+    pub async fn save(&self) -> Result<(), SaveError> {
         debug!("Initiating save process");
         // FIXME Terrible solution, duplicates all data already in
         // memory.  I think the best way to solve this without memory
@@ -90,22 +90,22 @@ impl ShardedStorage {
                     Ok(()) => Ok(()),
                     Err(e) => {
                         debug!("Error writing the dump to the file {:?}", e);
-                        Err(SaveErrorKind::UnableToWriteToDump)
+                        Err(SaveError::WritingDump)
                     }
                 },
                 Err(e) => {
                     debug!("Error serializing storage into binary format {:?}", e);
-                    Err(SaveErrorKind::UnableToSerializeIntoBinary)
+                    Err(SaveError::SerializingIntoBinary)
                 }
             },
             Err(e) => {
                 debug!("Error creating dump file {:?}", e);
-                Err(SaveErrorKind::UnableToCreateDump)
+                Err(SaveError::CreatingDump)
             }
         }
     }
 
-    pub async fn load(&self) -> Result<(), LoadErrorKind> {
+    pub async fn load(&self) -> Result<(), LoadError> {
         match fs::read("dump.ssch") {
             Ok(file_content) => {
                 match bincode::deserialize::<HashMap<String, String>>(&file_content) {
@@ -128,13 +128,13 @@ impl ShardedStorage {
                             "Error deserializing dump content into hashmap format {:?}",
                             e
                         );
-                        Err(LoadErrorKind::UnableToDeserializaData)
+                        Err(LoadError::DeserializingData)
                     }
                 }
             }
             Err(e) => {
                 debug!("Error reading dump file {:?}", e);
-                Err(LoadErrorKind::UnableToReadDump)
+                Err(LoadError::ReadingDump)
             }
         }
     }

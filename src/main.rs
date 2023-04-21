@@ -142,7 +142,7 @@ async fn process_connection_loop(storage: Arc<ShardedStorage>, stream: &mut TcpS
             Ok(_) => continue,
             Err(e) => {
                 match e {
-                    errors::SsacheErrorKind::NoDataReceived => break,
+                    errors::SsacheError::NoDataReceived => break,
                     _ => warn!("Error executing stream"),
                 };
             }
@@ -155,21 +155,17 @@ const CRLF: &str = "\r\n";
 async fn handle_request(
     mut stream: &mut TcpStream,
     storage: Arc<ShardedStorage>,
-) -> Result<(), errors::SsacheErrorKind> {
+) -> Result<(), errors::SsacheError> {
     let buf_reader = BufReader::new(&mut stream);
-    let command_line = parse_command_line_from_stream(buf_reader).await;
-    if command_line.is_err() {
-        debug!("No data received");
-        return Err(command_line.err().unwrap());
-    }
+    let command_line = parse_command_line_from_stream(buf_reader).await?;
 
-    let command = command::parse_command(command_line.unwrap());
+    let command = command::parse_command(command_line);
 
     if let Err(e) = command {
         return match e {
-            errors::SsacheErrorKind::NotEnoughParameters { message } => {
+            errors::SsacheError::NotEnoughParameters { message } => {
                 stream.write_all(message.as_bytes()).await.unwrap();
-                Err(errors::SsacheErrorKind::NotEnoughParameters { message })
+                Err(errors::SsacheError::NotEnoughParameters { message })
             }
             _ => return Err(e),
         };
@@ -206,13 +202,13 @@ async fn handle_request(
             let response = match storage.save().await {
                 Ok(()) => format!("+OK{CRLF}"),
                 Err(e) => match e {
-                    errors::SaveErrorKind::UnableToCreateDump => {
+                    errors::SaveError::CreatingDump => {
                         format!("-ERROR Unable to create dump file{CRLF}")
                     }
-                    errors::SaveErrorKind::UnableToSerializeIntoBinary => {
+                    errors::SaveError::SerializingIntoBinary => {
                         format!("-ERROR Unable to serialize data into binary format{CRLF}")
                     }
-                    errors::SaveErrorKind::UnableToWriteToDump => {
+                    errors::SaveError::WritingDump => {
                         format!("-ERROR Unable to write the data to the dump file{CRLF}")
                     }
                 },
@@ -224,10 +220,10 @@ async fn handle_request(
             let response = match storage.load().await {
                 Ok(()) => format!("+OK{CRLF}"),
                 Err(e) => match e {
-                    errors::LoadErrorKind::UnableToDeserializaData => {
+                    errors::LoadError::DeserializingData => {
                         format!("-ERROR Unable to deserialize data into hashmap format{CRLF}")
                     }
-                    errors::LoadErrorKind::UnableToReadDump => {
+                    errors::LoadError::ReadingDump => {
                         format!("-ERROR Unable to read dump file{CRLF}")
                     }
                 },
@@ -262,11 +258,11 @@ async fn handle_request(
 
 async fn parse_command_line_from_stream(
     mut buf_reader: BufReader<&mut &mut TcpStream>,
-) -> Result<Vec<String>, errors::SsacheErrorKind> {
+) -> Result<Vec<String>, errors::SsacheError> {
     let mut command_line = String::new();
     let result = buf_reader.read_line(&mut command_line).await;
     if result.is_err() {
-        return Err(errors::SsacheErrorKind::NoDataReceived);
+        return Err(errors::SsacheError::NoDataReceived);
     }
     let command_line = command_line.split_whitespace();
     let command_line: Vec<String> = command_line
@@ -274,7 +270,7 @@ async fn parse_command_line_from_stream(
         .map(|slice| slice.to_string())
         .collect();
     if command_line.get(0).is_none() {
-        return Err(errors::SsacheErrorKind::NoDataReceived);
+        return Err(errors::SsacheError::NoDataReceived);
     }
 
     Ok(command_line)
