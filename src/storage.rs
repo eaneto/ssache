@@ -3,21 +3,23 @@ use std::{
     fs::{self, File},
     hash::{Hash, Hasher},
     io::Write,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use log::debug;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::errors::{LoadErrorKind, SaveErrorKind};
 
 struct Entry {
     value: String,
-    _created_at: Instant,
+    created_at: Instant,
 }
 
 pub struct ShardedStorage {
     shards: Vec<RwLock<HashMap<String, Entry>>>,
+    expirations: Mutex<HashMap<String, Instant>>,
+    expired_keys: Mutex<Vec<String>>,
 }
 
 impl ShardedStorage {
@@ -26,7 +28,11 @@ impl ShardedStorage {
         for _ in 0..num_shards {
             shards.push(RwLock::new(HashMap::new()));
         }
-        ShardedStorage { shards }
+        ShardedStorage {
+            shards,
+            expirations: Mutex::new(HashMap::new()),
+            expired_keys: Mutex::new(Vec::new()),
+        }
     }
 
     pub async fn get(&self, key: String) -> Option<String> {
@@ -55,7 +61,7 @@ impl ShardedStorage {
             key,
             Entry {
                 value,
-                _created_at: Instant::now(),
+                created_at: Instant::now(),
             },
         );
         debug!("value successfully set on shard {:?}", shard_key);
@@ -111,7 +117,7 @@ impl ShardedStorage {
                                 key,
                                 Entry {
                                     value,
-                                    _created_at: Instant::now(),
+                                    created_at: Instant::now(),
                                 },
                             );
                         }
@@ -131,6 +137,47 @@ impl ShardedStorage {
                 Err(LoadErrorKind::UnableToReadDump)
             }
         }
+    }
+
+    pub async fn set_expiration(&self, key: String, ttl: Duration) {
+        let shard = self.shards[self.get_shard_key(&key)].read().await;
+        let entry = shard.get(&key);
+        if entry.is_some() {
+            let entry = entry.unwrap();
+            let expiration_time = entry.created_at + ttl;
+            self.expirations.lock().await.insert(key, expiration_time);
+        }
+    }
+
+    /// Checks for expired keys, removes them from the shard and saves
+    /// the removed keys.
+    pub async fn check_expirations(&self) {
+        let mut expirations = self.expirations.lock().await;
+        let mut expired_keys = self.expired_keys.lock().await;
+        for (key, expiration_time) in expirations.iter_mut() {
+            let shard_key = self.get_shard_key(key);
+            let mut shard = self.shards[shard_key].write().await;
+            if shard.get(key).is_none() {
+                debug!("Key '{}' already deleted on shard {}", key, shard_key);
+            } else {
+                let now = Instant::now();
+                if now >= *expiration_time {
+                    debug!("Removing '{}' from shard {}", key, shard_key);
+                    shard.remove(key);
+                    expired_keys.push(key.clone());
+                }
+            }
+        }
+    }
+
+    /// Removes already expired keys from the expirations.
+    pub async fn remove_expiration(&self) {
+        let mut expirations = self.expirations.lock().await;
+        let mut expired_keys = self.expired_keys.lock().await;
+        for expired_key in expired_keys.iter_mut() {
+            expirations.remove(expired_key);
+        }
+        expired_keys.clear();
     }
 
     /// Hashes the key to define the shard key and locate the value on the
