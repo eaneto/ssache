@@ -16,6 +16,14 @@ def initialize_ssache():
     return process.pid
 
 
+def initialize_ssache_with_scheduled_save(interval):
+    os.environ["RUST_LOG"] = "info"
+    command = ["./target/release/ssache", "-e", "--save-job-interval", interval]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(0.5)
+    return process.pid
+
+
 def kill_ssache(pid):
     os.kill(pid, signal.SIGTERM)
     time.sleep(0.5)
