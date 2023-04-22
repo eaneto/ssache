@@ -190,3 +190,163 @@ impl ShardedStorage {
         hash as usize % self.shards.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::remove_file, path::Path, thread};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn create_storage_with_one_shard() {
+        let storage = ShardedStorage::new(1);
+
+        assert_eq!(storage.shards.len(), 1);
+        assert_eq!(storage.expirations.lock().await.is_empty(), true);
+        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+    }
+
+    #[tokio::test]
+    async fn create_storage_with_ten_shards() {
+        let storage = ShardedStorage::new(10);
+
+        assert_eq!(storage.shards.len(), 10);
+        assert_eq!(storage.expirations.lock().await.is_empty(), true);
+        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+    }
+
+    #[tokio::test]
+    async fn get_unset_key() {
+        let storage = ShardedStorage::new(3);
+
+        let result = storage.get("key".to_string()).await;
+
+        assert_eq!(result.is_none(), true);
+    }
+
+    #[tokio::test]
+    async fn set_value_to_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "value".to_string()).await;
+        let result = storage.get("key".to_string()).await;
+
+        assert_eq!(result.is_some(), true);
+        assert_eq!(result.unwrap(), "value");
+    }
+
+    #[tokio::test]
+    async fn set_value_with_spaces_to_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage
+            .set("key".to_string(), "value with spaces".to_string())
+            .await;
+        let result = storage.get("key".to_string()).await;
+
+        assert_eq!(result.is_some(), true);
+        assert_eq!(result.unwrap(), "value with spaces");
+    }
+
+    #[tokio::test]
+    async fn set_expiration_to_unkown_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage
+            .set_expiration("key".to_string(), Duration::from_millis(10))
+            .await;
+
+        assert_eq!(storage.expirations.lock().await.is_empty(), true);
+        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+    }
+
+    #[tokio::test]
+    async fn set_expiration_to_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "value".to_string()).await;
+
+        storage
+            .set_expiration("key".to_string(), Duration::from_millis(10))
+            .await;
+
+        let expirations = storage.expirations.lock().await;
+        assert_eq!(expirations.is_empty(), false);
+        assert_eq!(expirations.contains_key("key"), true);
+        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+    }
+
+    #[tokio::test]
+    async fn set_expiration_to_key_and_check_expirations() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "value".to_string()).await;
+
+        storage
+            .set_expiration("key".to_string(), Duration::from_millis(10))
+            .await;
+
+        thread::sleep(Duration::from_millis(10));
+
+        storage.check_expirations().await;
+
+        let result = storage.get("key".to_string()).await;
+        assert_eq!(result.is_none(), true);
+
+        let expirations = storage.expirations.lock().await;
+        assert_eq!(expirations.is_empty(), false);
+        assert_eq!(expirations.contains_key("key"), true);
+
+        let expired_keys = storage.expired_keys.lock().await;
+        assert_eq!(expired_keys.is_empty(), false);
+        assert_eq!(expired_keys.contains(&"key".to_string()), true);
+    }
+
+    #[tokio::test]
+    async fn set_expiration_to_key_check_expirations_and_remove_expired_keys() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "value".to_string()).await;
+
+        storage
+            .set_expiration("key".to_string(), Duration::from_millis(10))
+            .await;
+
+        thread::sleep(Duration::from_millis(10));
+
+        storage.check_expirations().await;
+        storage.remove_expiration().await;
+
+        assert_eq!(storage.expirations.lock().await.is_empty(), true);
+        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+    }
+
+    #[tokio::test]
+    async fn save_dump_with_multiple_keys_and_load_to_new_storage_with_different_number_of_shards()
+    {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key-1".to_string(), "value".to_string()).await;
+        storage.set("key-2".to_string(), "value".to_string()).await;
+        storage.set("key-3".to_string(), "value".to_string()).await;
+
+        let result = storage.get("key-1".to_string()).await;
+        assert_eq!(result.is_none(), false);
+
+        let result = storage.save().await;
+        assert_eq!(result.is_ok(), true);
+
+        let storage = ShardedStorage::new(7);
+        let result = storage.load().await;
+        assert_eq!(result.is_ok(), true);
+
+        let result = storage.get("key-1".to_string()).await;
+        assert_eq!(result.is_none(), false);
+        let result = storage.get("key-2".to_string()).await;
+        assert_eq!(result.is_none(), false);
+        let result = storage.get("key-3".to_string()).await;
+        assert_eq!(result.is_none(), false);
+
+        remove_file(Path::new("dump.ssch")).unwrap();
+    }
+}
