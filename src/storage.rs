@@ -236,6 +236,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_different_value_to_same_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "value".to_string()).await;
+        storage
+            .set("key".to_string(), "different value".to_string())
+            .await;
+        let result = storage.get("key".to_string()).await;
+
+        assert_eq!(result.is_some(), true);
+        assert_eq!(result.unwrap(), "different value");
+    }
+
+    #[tokio::test]
     async fn set_value_with_spaces_to_key() {
         let storage = ShardedStorage::new(3);
 
