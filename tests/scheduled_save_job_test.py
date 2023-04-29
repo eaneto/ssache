@@ -1,13 +1,10 @@
-import os
-import signal
 from time import sleep
-
-import psutil
 
 from ssache_client import (
     CRLF,
     SsacheClient,
-    initialize_ssache_with_scheduled_save,
+    find_and_kill_ssache_process,
+    initialize_ssache,
     kill_ssache,
 )
 
@@ -30,13 +27,9 @@ def get_and_check_found_value(client, key):
     assert response.decode("utf-8") == expected_response
 
 
-# Workaround to kill the running ssache process and restart it
-processes = psutil.process_iter()
-name = "ssache"
-ssache_process = [p for p in processes if name in p.name()][0]
-os.kill(ssache_process.pid, signal.SIGTERM)
+find_and_kill_ssache_process()
 
-pid = initialize_ssache_with_scheduled_save("1")
+pid = initialize_ssache(args="-e --save-job-interval 1")
 try:
     client = SsacheClient()
     client.connect()
@@ -52,7 +45,7 @@ finally:
     kill_ssache(pid)
 
 
-pid = initialize_ssache_with_scheduled_save("1")
+pid = initialize_ssache(args="-e --save-job-interval 1")
 
 try:
     client.connect()
