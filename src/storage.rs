@@ -3,6 +3,7 @@ use std::{
     fs::{self, File},
     hash::{Hash, Hasher},
     io::Write,
+    num::ParseIntError,
     time::{Duration, Instant},
 };
 
@@ -180,6 +181,28 @@ impl ShardedStorage {
         expired_keys.clear();
     }
 
+    pub async fn incr(&self, key: String) -> Result<i64, ParseIntError> {
+        let mut shard = self.shards[self.get_shard_key(&key)].write().await;
+        let entry = shard.entry(key).or_insert(Entry {
+            value: (-1).to_string(),
+            created_at: Instant::now(),
+        });
+        let value = entry.value.parse::<i64>()? + 1;
+        entry.value = value.to_string();
+        Ok(value)
+    }
+
+    pub async fn decr(&self, key: String) -> Result<i64, ParseIntError> {
+        let mut shard = self.shards[self.get_shard_key(&key)].write().await;
+        let entry = shard.entry(key).or_insert(Entry {
+            value: 1.to_string(),
+            created_at: Instant::now(),
+        });
+        let value = entry.value.parse::<i64>()? - 1;
+        entry.value = value.to_string();
+        Ok(value)
+    }
+
     /// Hashes the key to define the shard key and locate the value on the
     /// storage.
     fn get_shard_key(&self, key: &String) -> usize {
@@ -260,6 +283,48 @@ mod tests {
 
         assert_eq!(result.is_some(), true);
         assert_eq!(result.unwrap(), "value with spaces");
+    }
+
+    #[tokio::test]
+    async fn incr_unset_key() {
+        let storage = ShardedStorage::new(3);
+
+        let result = storage.incr("key".to_string()).await;
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn incr_set_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "9".to_string()).await;
+        let result = storage.incr("key".to_string()).await;
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), 10);
+    }
+
+    #[tokio::test]
+    async fn decr_unset_key() {
+        let storage = ShardedStorage::new(3);
+
+        let result = storage.decr("key".to_string()).await;
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn decr_set_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "17".to_string()).await;
+        let result = storage.decr("key".to_string()).await;
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(result.unwrap(), 16);
     }
 
     #[tokio::test]
