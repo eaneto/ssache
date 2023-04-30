@@ -65,6 +65,16 @@ class SsacheClient:
         self.__socket.send(request.encode("utf-8"))
         return self.__socket.recv(1024)
 
+    def incr(self, key):
+        request = f"INCR {key}{CRLF}"
+        self.__socket.send(request.encode("utf-8"))
+        return self.__socket.recv(1024)
+
+    def decr(self, key):
+        request = f"DECR {key}{CRLF}"
+        self.__socket.send(request.encode("utf-8"))
+        return self.__socket.recv(1024)
+
     def save(self):
         request = f"SAVE{CRLF}"
         self.__socket.send(request.encode("utf-8"))

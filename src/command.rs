@@ -12,6 +12,10 @@ pub enum Command {
     Set { key: String, value: String },
     // EXPIRE key time(in milliseconds)
     Expire { key: String, time: Duration },
+    // INCR key
+    Incr { key: String },
+    // DECR key
+    Decr { key: String },
     // SAVE
     Save,
     // LOAD
@@ -63,6 +67,26 @@ pub fn parse_command(command_line: Vec<String>) -> Result<Command, SsacheError> 
         }
     } else if command.eq(&String::from("SAVE")) {
         Ok(Command::Save)
+    } else if command.eq(&String::from("INCR")) {
+        if let Some(key) = command_line.get(1) {
+            Ok(Command::Incr {
+                key: key.to_string(),
+            })
+        } else {
+            debug!("not enough parameters for INCR command");
+            let message = format!("-ERROR not enough parameters for INCR{CRLF}");
+            Err(SsacheError::NotEnoughParameters { message })
+        }
+    } else if command.eq(&String::from("DECR")) {
+        if let Some(key) = command_line.get(1) {
+            Ok(Command::Decr {
+                key: key.to_string(),
+            })
+        } else {
+            debug!("not enough parameters for DECR command");
+            let message = format!("-ERROR not enough parameters for DECR{CRLF}");
+            Err(SsacheError::NotEnoughParameters { message })
+        }
     } else if command.eq(&String::from("LOAD")) {
         Ok(Command::Load)
     } else if command.eq(&String::from("QUIT")) {
@@ -278,6 +302,60 @@ mod tests {
             Command::Expire {
                 key: "key".to_string(),
                 time: Duration::from_millis(1000)
+            }
+        );
+    }
+
+    #[test]
+    fn parse_incr_command_without_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("INCR".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_err(), true);
+    }
+
+    #[test]
+    fn parse_incr_command_with_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("INCR".to_string());
+        command_line.push("key".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Incr {
+                key: "key".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_decr_command_without_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("DECR".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_err(), true);
+    }
+
+    #[test]
+    fn parse_decr_command_with_enough_arguments() {
+        let mut command_line = Vec::new();
+        command_line.push("DECR".to_string());
+        command_line.push("key".to_string());
+
+        let result = parse_command(command_line);
+
+        assert_eq!(result.is_ok(), true);
+        assert_eq!(
+            result.unwrap(),
+            Command::Decr {
+                key: "key".to_string()
             }
         );
     }

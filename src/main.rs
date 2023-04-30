@@ -198,6 +198,60 @@ async fn handle_request(
             stream.write_all(response.as_bytes()).await.unwrap();
             Ok(())
         }
+        command::Command::Incr { key } => {
+            let response = match storage.incr(key).await {
+                Ok(value) => format!(":{value}{CRLF}"),
+                Err(e) => {
+                    match e.kind() {
+                        std::num::IntErrorKind::Empty => {
+                            format!("-ERROR the value is empty, impossible to convert to a number{CRLF}")
+                        }
+                        std::num::IntErrorKind::InvalidDigit => {
+                            format!("-ERROR the value is not a valid number{CRLF}")
+                        }
+                        std::num::IntErrorKind::NegOverflow => {
+                            format!("-ERROR negative overflow{CRLF}")
+                        }
+                        std::num::IntErrorKind::PosOverflow => {
+                            format!("-ERROR positive overflow{CRLF}")
+                        }
+                        &_ => {
+                            debug!("unkwon error incrementing key {}", e);
+                            format!("-ERROR unknown error {CRLF}")
+                        }
+                    }
+                }
+            };
+            stream.write_all(response.as_bytes()).await.unwrap();
+            Ok(())
+        }
+        command::Command::Decr { key } => {
+            let response = match storage.decr(key).await {
+                Ok(value) => format!(":{value}{CRLF}"),
+                Err(e) => {
+                    match e.kind() {
+                        std::num::IntErrorKind::Empty => {
+                            format!("-ERROR the value is empty, impossible to convert to a number{CRLF}")
+                        }
+                        std::num::IntErrorKind::InvalidDigit => {
+                            format!("-ERROR the value is not a valid number{CRLF}")
+                        }
+                        std::num::IntErrorKind::NegOverflow => {
+                            format!("-ERROR negative overflow{CRLF}")
+                        }
+                        std::num::IntErrorKind::PosOverflow => {
+                            format!("-ERROR positive overflow{CRLF}")
+                        }
+                        &_ => {
+                            debug!("unkwon error incrementing key {}", e);
+                            format!("-ERROR unknown error {CRLF}")
+                        }
+                    }
+                }
+            };
+            stream.write_all(response.as_bytes()).await.unwrap();
+            Ok(())
+        }
         command::Command::Save => {
             let response = match storage.save().await {
                 Ok(()) => format!("+OK{CRLF}"),

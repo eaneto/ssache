@@ -8,11 +8,14 @@ system that i can use on my own website.
 
 ## Commands supported
 
-To send the commands to ssache you need to stablish a tcp connection, the protocol used is based on [RESP][1].
+To send the commands to ssache you need to stablish a tcp connection,
+the protocol used is based on [RESP][1].
 
 - GET
 - SET
 - EXPIRE
+- INCR
+- DECR
 - SAVE
 - LOAD
 - PING
@@ -20,8 +23,6 @@ To send the commands to ssache you need to stablish a tcp connection, the protoc
 
 ## TODOs
 
-- Support storing integers
-  - Implement INCR and DECR
 - Distributed storage
   - Simple last write wins algorithm
 
@@ -79,6 +80,38 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 EXPIRE key 1000
 +OK
+```
+
+### INCR
+
+Increments the value stored in a [key], initializes with zero if the
+key doesn't exist. Returns the incremented value.
+
+INCR [key]
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+INCR key
+:0
+```
+
+### DECR
+
+Decrements the value stored in a [key], initializes with zero if the
+key doesn't exist. Returns the incremented value.
+
+DECR [key]
+
+```shell
+$ telnet 127.0.0.1 7777
+Trying 127.0.0.1...
+Connected to 127.0.0.1.
+Escape character is '^]'.
+DECR key
+:0
 ```
 
 ### QUIT
