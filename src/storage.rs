@@ -143,7 +143,8 @@ impl ShardedStorage {
     pub async fn set_expiration(&self, key: String, ttl: Duration) {
         let shard = self.shards[self.get_shard_key(&key)].read().await;
         let entry = shard.get(&key);
-        if entry.is_some() {
+        // If the duration is set to 0 ignore the expiration.
+        if entry.is_some() && ttl != Duration::from_millis(0) {
             let entry = entry.unwrap();
             let expiration_time = entry.created_at + ttl;
             self.expirations.lock().await.insert(key, expiration_time);
@@ -352,6 +353,20 @@ mod tests {
         let expirations = storage.expirations.lock().await;
         assert_eq!(expirations.is_empty(), false);
         assert_eq!(expirations.contains_key("key"), true);
+        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+    }
+
+    #[tokio::test]
+    async fn set_expiration_zero_to_key() {
+        let storage = ShardedStorage::new(3);
+
+        storage.set("key".to_string(), "value".to_string()).await;
+
+        storage
+            .set_expiration("key".to_string(), Duration::from_millis(0))
+            .await;
+
+        assert_eq!(storage.expirations.lock().await.is_empty(), true);
         assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
     }
 
