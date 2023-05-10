@@ -105,23 +105,21 @@ mod tests {
 
     #[test]
     fn parse_unkown_command() {
-        let mut command_line = Vec::new();
-        command_line.push("UNKNOWN".to_string());
+        let command_line = vec!["UNKNOWN".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Command::Unknown);
     }
 
     #[test]
     fn parse_ping_with_no_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("PING".to_string());
+        let command_line = vec!["PING".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Ping {
@@ -132,13 +130,11 @@ mod tests {
 
     #[test]
     fn parse_ping_with_custom_message() {
-        let mut command_line = Vec::new();
-        command_line.push("PING".to_string());
-        command_line.push("some message".to_string());
+        let command_line = vec!["PING".to_string(), "some message".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Ping {
@@ -149,56 +145,50 @@ mod tests {
 
     #[test]
     fn parse_quit_command() {
-        let mut command_line = Vec::new();
-        command_line.push("QUIT".to_string());
+        let command_line = vec!["QUIT".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Command::Quit);
     }
 
     #[test]
     fn parse_save_command() {
-        let mut command_line = Vec::new();
-        command_line.push("SAVE".to_string());
+        let command_line = vec!["SAVE".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Command::Save);
     }
 
     #[test]
     fn parse_load_command() {
-        let mut command_line = Vec::new();
-        command_line.push("LOAD".to_string());
+        let command_line = vec!["LOAD".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), Command::Load);
     }
 
     #[test]
     fn parse_get_command_without_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("GET".to_string());
+        let command_line = vec!["GET".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn parse_get_command_with_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("GET".to_string());
-        command_line.push("key".to_string());
+        let command_line = vec!["GET".to_string(), "key".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Get {
@@ -209,35 +199,29 @@ mod tests {
 
     #[test]
     fn parse_set_command_with_no_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("SET".to_string());
+        let command_line = vec!["SET".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn parse_set_command_with_only_the_key_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("SET".to_string());
-        command_line.push("key".to_string());
+        let command_line = vec!["SET".to_string(), "key".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn parse_set_command_with_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("SET".to_string());
-        command_line.push("key".to_string());
-        command_line.push("value".to_string());
+        let command_line = vec!["SET".to_string(), "key".to_string(), "value".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Set {
@@ -249,14 +233,15 @@ mod tests {
 
     #[test]
     fn parse_set_command_with_spaces_on_value() {
-        let mut command_line = Vec::new();
-        command_line.push("SET".to_string());
-        command_line.push("key".to_string());
-        command_line.push("value with spaces".to_string());
+        let command_line = vec![
+            "SET".to_string(),
+            "key".to_string(),
+            "value with spaces".to_string(),
+        ];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Set {
@@ -268,35 +253,29 @@ mod tests {
 
     #[test]
     fn parse_expire_command_with_no_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("EXPIRE".to_string());
+        let command_line = vec!["EXPIRE".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn parse_expire_command_with_only_the_key_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("EXPIRE".to_string());
-        command_line.push("key".to_string());
+        let command_line = vec!["EXPIRE".to_string(), "key".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn parse_expire_command_with_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("EXPIRE".to_string());
-        command_line.push("key".to_string());
-        command_line.push("1000".to_string());
+        let command_line = vec!["EXPIRE".to_string(), "key".to_string(), "1000".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Expire {
@@ -308,23 +287,20 @@ mod tests {
 
     #[test]
     fn parse_incr_command_without_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("INCR".to_string());
+        let command_line = vec!["INCR".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn parse_incr_command_with_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("INCR".to_string());
-        command_line.push("key".to_string());
+        let command_line = vec!["INCR".to_string(), "key".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Incr {
@@ -335,23 +311,20 @@ mod tests {
 
     #[test]
     fn parse_decr_command_without_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("DECR".to_string());
+        let command_line = vec!["DECR".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
     fn parse_decr_command_with_enough_arguments() {
-        let mut command_line = Vec::new();
-        command_line.push("DECR".to_string());
-        command_line.push("key".to_string());
+        let command_line = vec!["DECR".to_string(), "key".to_string()];
 
         let result = parse_command(command_line);
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(
             result.unwrap(),
             Command::Decr {

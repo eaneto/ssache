@@ -411,7 +411,7 @@ mod tests {
 
         let result = storage.get("key".to_string()).await;
 
-        assert_eq!(result.is_none(), true);
+        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -421,7 +421,7 @@ mod tests {
         storage.set("key".to_string(), "value".to_string()).await;
         let result = storage.get("key".to_string()).await;
 
-        assert_eq!(result.is_some(), true);
+        assert!(result.is_some());
         assert_eq!(result.unwrap(), "value");
     }
 
@@ -435,7 +435,7 @@ mod tests {
             .await;
         let result = storage.get("key".to_string()).await;
 
-        assert_eq!(result.is_some(), true);
+        assert!(result.is_some());
         assert_eq!(result.unwrap(), "different value");
     }
 
@@ -448,7 +448,7 @@ mod tests {
             .await;
         let result = storage.get("key".to_string()).await;
 
-        assert_eq!(result.is_some(), true);
+        assert!(result.is_some());
         assert_eq!(result.unwrap(), "value with spaces");
     }
 
@@ -458,7 +458,7 @@ mod tests {
 
         let result = storage.incr("key".to_string()).await;
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
 
@@ -469,7 +469,7 @@ mod tests {
         storage.set("key".to_string(), "9".to_string()).await;
         let result = storage.incr("key".to_string()).await;
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), 10);
     }
 
@@ -479,7 +479,7 @@ mod tests {
 
         let result = storage.decr("key".to_string()).await;
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
 
@@ -490,7 +490,7 @@ mod tests {
         storage.set("key".to_string(), "17".to_string()).await;
         let result = storage.decr("key".to_string()).await;
 
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         assert_eq!(result.unwrap(), 16);
     }
 
@@ -502,8 +502,8 @@ mod tests {
             .set_expiration("key".to_string(), Duration::from_millis(10))
             .await;
 
-        assert_eq!(storage.expirations.lock().await.is_empty(), true);
-        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+        assert!(storage.expirations.lock().await.is_empty());
+        assert!(storage.expired_keys.lock().await.is_empty());
     }
 
     #[tokio::test]
@@ -517,9 +517,9 @@ mod tests {
             .await;
 
         let expirations = storage.expirations.lock().await;
-        assert_eq!(expirations.is_empty(), false);
-        assert_eq!(expirations.contains_key("key"), true);
-        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+        assert!(!expirations.is_empty());
+        assert!(expirations.contains_key("key"));
+        assert!(storage.expired_keys.lock().await.is_empty());
     }
 
     #[tokio::test]
@@ -532,8 +532,8 @@ mod tests {
             .set_expiration("key".to_string(), Duration::from_millis(0))
             .await;
 
-        assert_eq!(storage.expirations.lock().await.is_empty(), true);
-        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+        assert!(storage.expirations.lock().await.is_empty());
+        assert!(storage.expired_keys.lock().await.is_empty());
     }
 
     #[tokio::test]
@@ -551,15 +551,15 @@ mod tests {
         storage.check_expirations().await;
 
         let result = storage.get("key".to_string()).await;
-        assert_eq!(result.is_none(), true);
+        assert!(result.is_none());
 
         let expirations = storage.expirations.lock().await;
-        assert_eq!(expirations.is_empty(), false);
-        assert_eq!(expirations.contains_key("key"), true);
+        assert!(!expirations.is_empty());
+        assert!(expirations.contains_key("key"));
 
         let expired_keys = storage.expired_keys.lock().await;
-        assert_eq!(expired_keys.is_empty(), false);
-        assert_eq!(expired_keys.contains(&"key".to_string()), true);
+        assert!(!expired_keys.is_empty());
+        assert!(expired_keys.contains(&"key".to_string()));
     }
 
     #[tokio::test]
@@ -577,8 +577,8 @@ mod tests {
         storage.check_expirations().await;
         storage.remove_expiration().await;
 
-        assert_eq!(storage.expirations.lock().await.is_empty(), true);
-        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+        assert!(storage.expirations.lock().await.is_empty());
+        assert!(storage.expired_keys.lock().await.is_empty());
     }
 
     #[tokio::test]
@@ -591,21 +591,21 @@ mod tests {
         storage.set("key-3".to_string(), "value".to_string()).await;
 
         let result = storage.get("key-1".to_string()).await;
-        assert_eq!(result.is_none(), false);
+        assert!(result.is_some());
 
         let result = storage.save().await;
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
 
         let storage = ShardedStorage::new(7, Vec::new());
         let result = storage.load().await;
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
 
         let result = storage.get("key-1".to_string()).await;
-        assert_eq!(result.is_none(), false);
+        assert!(result.is_some());
         let result = storage.get("key-2".to_string()).await;
-        assert_eq!(result.is_none(), false);
+        assert!(result.is_some());
         let result = storage.get("key-3".to_string()).await;
-        assert_eq!(result.is_none(), false);
+        assert!(result.is_some());
 
         remove_file(Path::new("dump.ssch")).unwrap();
     }
