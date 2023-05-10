@@ -30,6 +30,18 @@ struct Args {
     /// The interval of the scheduled save job in minutes
     #[arg(long, default_value_t = 60)]
     save_job_interval: u32,
+
+    /// Turns the replication on
+    #[arg(short, long, default_value_t = false)]
+    replication_active: bool,
+
+    /// Replica address on the format <ip|dns>:port, e.g.: 127.0.0.1:7778
+    #[arg(long)]
+    replicas: Vec<String>,
+
+    /// The replication interval in minutes
+    #[arg(long, default_value_t = 10)]
+    replication_interval: u32,
 }
 
 #[tokio::main]
@@ -37,10 +49,14 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let storage = Arc::new(ShardedStorage::new(args.shards));
+    let storage = Arc::new(ShardedStorage::new(args.shards, args.replicas.clone()));
 
     if args.enable_scheduled_save {
         enable_scheduled_save_job(storage.clone(), &args);
+    }
+
+    if args.replication_active {
+        enable_replication(storage.clone(), &args);
     }
 
     tokio::spawn(async move {
@@ -96,6 +112,26 @@ fn enable_scheduled_save_job(storage: Arc<ShardedStorage>, args: &Args) {
 
     // Spawns a thread on background to dump the in-memory storage to
     // a file from time to time.
+    tokio::spawn(async move {
+        loop {
+            scheduler.run_pending().await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+}
+
+fn enable_replication(storage: Arc<ShardedStorage>, args: &Args) {
+    let mut scheduler = AsyncScheduler::new();
+    scheduler
+        .every(args.replication_interval.minutes())
+        .run(move || {
+            let storage = storage.clone();
+            async move {
+                debug!("Running replication process");
+                storage.broadcast_to_replicas().await;
+            }
+        });
+
     tokio::spawn(async move {
         loop {
             scheduler.run_pending().await;
@@ -164,7 +200,7 @@ async fn handle_request(
     if let Err(e) = command {
         return match e {
             errors::SsacheError::NotEnoughParameters { message } => {
-                stream.write_all(message.as_bytes()).await.unwrap();
+                send_response(stream, message.clone()).await;
                 Err(errors::SsacheError::NotEnoughParameters { message })
             }
             _ => return Err(e),
@@ -183,19 +219,19 @@ async fn handle_request(
                     format!("$-1{CRLF}")
                 }
             };
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Set { key, value } => {
             storage.set(key, value).await;
             let response = format!("+OK{CRLF}");
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Expire { key, time } => {
             storage.set_expiration(key, time).await;
             let response = format!("+OK{CRLF}");
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Incr { key } => {
@@ -222,7 +258,7 @@ async fn handle_request(
                     }
                 }
             };
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Decr { key } => {
@@ -249,7 +285,7 @@ async fn handle_request(
                     }
                 }
             };
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Save => {
@@ -267,7 +303,7 @@ async fn handle_request(
                     }
                 },
             };
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Load => {
@@ -282,13 +318,15 @@ async fn handle_request(
                     }
                 },
             };
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Quit => {
             let response = format!("+OK{CRLF}");
-            stream.write_all(response.as_bytes()).await.unwrap();
-            stream.shutdown().await.unwrap();
+            send_response(stream, response).await;
+            if let Err(e) = stream.shutdown().await {
+                debug!("Error shutting down stream {e}");
+            }
             Ok(())
         }
         command::Command::Ping { message } => {
@@ -298,15 +336,22 @@ async fn handle_request(
             } else {
                 format!("${size}{CRLF}+{message}{CRLF}")
             };
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
         command::Command::Unknown => {
             debug!("Unknown command");
             let response = format!("-ERROR unknown command{CRLF}");
-            stream.write_all(response.as_bytes()).await.unwrap();
+            send_response(stream, response).await;
             Ok(())
         }
+    }
+}
+
+async fn send_response(stream: &mut TcpStream, response: String) {
+    match stream.write_all(response.as_bytes()).await {
+        Ok(_) => trace!("Response sent to client"),
+        Err(e) => debug!("Unable to send response to client {e}"),
     }
 }
 

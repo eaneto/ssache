@@ -21,11 +21,6 @@ the protocol used is based on [RESP][1].
 - PING
 - QUIT
 
-## TODOs
-
-- Distributed storage
-  - Simple last write wins algorithm
-
 ## Building
 
 ```shell

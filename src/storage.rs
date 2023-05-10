@@ -7,32 +7,61 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::debug;
-use tokio::sync::{Mutex, RwLock};
+use log::{debug, error, trace};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    sync::{Mutex, RwLock},
+};
 
-use crate::errors::{LoadError, SaveError};
+use crate::{
+    errors::{LoadError, SaveError},
+    CRLF,
+};
 
 struct Entry {
     value: String,
     created_at: Instant,
 }
 
+type ShardedLog = Vec<RwLock<Vec<(String, String)>>>;
+
 pub struct ShardedStorage {
+    num_shards: usize,
     shards: Vec<RwLock<HashMap<String, Entry>>>,
     expirations: Mutex<HashMap<String, Instant>>,
     expired_keys: Mutex<Vec<String>>,
+    log: HashMap<String, ShardedLog>,
+    log_offset: HashMap<String, Vec<Mutex<u32>>>,
+    replicas: Vec<String>,
 }
 
 impl ShardedStorage {
-    pub fn new(num_shards: usize) -> ShardedStorage {
+    pub fn new(num_shards: usize, replicas: Vec<String>) -> ShardedStorage {
         let mut shards = Vec::with_capacity(num_shards);
         for _ in 0..num_shards {
             shards.push(RwLock::new(HashMap::new()));
         }
+        let mut log = HashMap::new();
+        let mut log_offset = HashMap::new();
+        for replica in replicas.clone() {
+            let mut replica_log = Vec::with_capacity(num_shards);
+            let mut replica_offset = Vec::with_capacity(num_shards);
+            for _ in 0..num_shards {
+                replica_log.push(RwLock::new(Vec::new()));
+                replica_offset.push(Mutex::new(0))
+            }
+            log.insert(replica.clone(), replica_log);
+            log_offset.insert(replica.clone(), replica_offset);
+        }
         ShardedStorage {
+            num_shards,
             shards,
             expirations: Mutex::new(HashMap::new()),
             expired_keys: Mutex::new(Vec::new()),
+            log,
+            log_offset,
+            replicas,
         }
     }
 
@@ -58,6 +87,7 @@ impl ShardedStorage {
     pub async fn set(&self, key: String, value: String) {
         let shard_key = self.get_shard_key(&key);
         let mut shard = self.shards[shard_key].write().await;
+        self.write_operation_on_log(shard_key, &key, &value).await;
         shard.insert(
             key,
             Entry {
@@ -183,25 +213,139 @@ impl ShardedStorage {
     }
 
     pub async fn incr(&self, key: String) -> Result<i64, ParseIntError> {
-        let mut shard = self.shards[self.get_shard_key(&key)].write().await;
-        let entry = shard.entry(key).or_insert(Entry {
+        let shard_key = self.get_shard_key(&key);
+        let mut shard = self.shards[shard_key].write().await;
+        let entry = shard.entry(key.clone()).or_insert(Entry {
             value: (-1).to_string(),
             created_at: Instant::now(),
         });
         let value = entry.value.parse::<i64>()? + 1;
         entry.value = value.to_string();
+        self.write_operation_on_log(shard_key, &key, &entry.value)
+            .await;
         Ok(value)
     }
 
     pub async fn decr(&self, key: String) -> Result<i64, ParseIntError> {
+        let shard_key = self.get_shard_key(&key);
         let mut shard = self.shards[self.get_shard_key(&key)].write().await;
-        let entry = shard.entry(key).or_insert(Entry {
+        let entry = shard.entry(key.clone()).or_insert(Entry {
             value: 1.to_string(),
             created_at: Instant::now(),
         });
         let value = entry.value.parse::<i64>()? - 1;
         entry.value = value.to_string();
+        self.write_operation_on_log(shard_key, &key, &entry.value)
+            .await;
         Ok(value)
+    }
+
+    async fn write_operation_on_log(&self, shard_key: usize, key: &String, value: &String) {
+        for replica in &self.replicas {
+            self.log.get(replica).unwrap()[shard_key]
+                .write()
+                .await
+                .push((key.to_string(), value.to_string()));
+        }
+    }
+
+    /// Broadcast the operation log to all registered replicas.
+    pub async fn broadcast_to_replicas(&self) {
+        for replica in &self.replicas {
+            debug!("Broadcasting to {replica}");
+            for i in 0..self.num_shards {
+                let log = self.log.get(replica).unwrap()[i].read().await;
+                let mut log_offset = self.log_offset.get(replica).unwrap()[i].lock().await;
+                self.replicate_shard(&log, &mut log_offset, replica).await;
+            }
+        }
+
+        self.clean_log().await;
+    }
+
+    async fn replicate_shard(
+        &self,
+        log: &[(String, String)],
+        log_offset: &mut u32,
+        replica: &String,
+    ) {
+        trace!("Current log offset {log_offset}");
+
+        let mut stream = match TcpStream::connect(&replica).await {
+            Ok(stream) => {
+                trace!("Successfully connected to replica {replica}");
+                stream
+            }
+            Err(e) => {
+                error!("Error connecting to replica {replica} {e}");
+                return;
+            }
+        };
+
+        let batch_size = 100;
+        let mut replicated_operations_by_shard = 0;
+        for offset in *log_offset..(*log_offset + batch_size) {
+            trace!("Replicating log offset {offset}");
+            let operation = match log.get(offset as usize) {
+                Some(operation) => operation,
+                None => {
+                    trace!("Operation not found on offset {offset}");
+                    break;
+                }
+            };
+            self.replicate_operation(operation, &mut stream, &mut replicated_operations_by_shard)
+                .await;
+        }
+
+        // Updates the log offset for the partition after
+        // sending all possible messages.
+        *log_offset += replicated_operations_by_shard;
+    }
+
+    async fn replicate_operation(
+        &self,
+        operation: &(String, String),
+        stream: &mut TcpStream,
+        replicated_operations_by_shard: &mut u32,
+    ) {
+        trace!("Sending operation {} {}", operation.0, operation.1);
+
+        let command = format!("SET {} {}{CRLF}", operation.0, operation.1);
+
+        match stream.write_all(command.as_bytes()).await {
+            Ok(_) => *replicated_operations_by_shard += 1,
+            Err(e) => {
+                // Ignore error and proceed with replication
+                error!(
+                    "Error sending operation({} {}) to replica {e}",
+                    operation.0, operation.1
+                )
+            }
+        }
+
+        let mut buf = [0u8; 5];
+        match stream.read_exact(&mut buf).await {
+            Ok(_) => {
+                let response = String::from_utf8_lossy(&buf);
+                if response == format!("+OK{CRLF}") {
+                    trace!("Successfully processed operation");
+                } else {
+                    error!("Error replicating operation {response}");
+                }
+            }
+            Err(e) => error!("Error receiving replica response {e}"),
+        }
+    }
+
+    async fn clean_log(&self) {
+        for replica in &self.replicas {
+            for i in 0..self.num_shards {
+                let mut log = self.log.get(replica).unwrap()[i].write().await;
+                let mut log_offset = self.log_offset.get(replica).unwrap()[i].lock().await;
+                log.drain(0..((*log_offset) as usize));
+                *log_offset = 0;
+            }
+        }
     }
 
     /// Hashes the key to define the shard key and locate the value on the
@@ -222,26 +366,48 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn create_storage_with_one_shard() {
-        let storage = ShardedStorage::new(1);
+    async fn create_storage_with_one_shard_and_no_replicas() {
+        let storage = ShardedStorage::new(1, Vec::new());
 
         assert_eq!(storage.shards.len(), 1);
-        assert_eq!(storage.expirations.lock().await.is_empty(), true);
-        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+        assert!(storage.log.is_empty());
+        assert!(storage.log_offset.is_empty());
+        assert!(storage.replicas.is_empty());
+        assert!(storage.expirations.lock().await.is_empty());
+        assert!(storage.expired_keys.lock().await.is_empty());
     }
 
     #[tokio::test]
-    async fn create_storage_with_ten_shards() {
-        let storage = ShardedStorage::new(10);
+    async fn create_storage_with_ten_shards_and_no_replicas() {
+        let storage = ShardedStorage::new(10, Vec::new());
 
         assert_eq!(storage.shards.len(), 10);
-        assert_eq!(storage.expirations.lock().await.is_empty(), true);
-        assert_eq!(storage.expired_keys.lock().await.is_empty(), true);
+        assert!(storage.log.is_empty());
+        assert!(storage.log_offset.is_empty());
+        assert!(storage.replicas.is_empty());
+        assert!(storage.expirations.lock().await.is_empty());
+        assert!(storage.expired_keys.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_storage_with_ten_shards_and_two_replicas() {
+        let replicas = vec!["127.0.0.1:7778".to_string(), "127.0.0.1:7779".to_string()];
+
+        let storage = ShardedStorage::new(10, replicas.clone());
+
+        assert_eq!(storage.shards.len(), 10);
+        for replica in replicas {
+            assert!(storage.log.contains_key(&replica));
+            assert!(storage.log_offset.contains_key(&replica));
+        }
+        assert_eq!(storage.replicas.len(), 2);
+        assert!(storage.expirations.lock().await.is_empty());
+        assert!(storage.expired_keys.lock().await.is_empty());
     }
 
     #[tokio::test]
     async fn get_unset_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         let result = storage.get("key".to_string()).await;
 
@@ -250,7 +416,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_value_to_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "value".to_string()).await;
         let result = storage.get("key".to_string()).await;
@@ -261,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_different_value_to_same_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "value".to_string()).await;
         storage
@@ -275,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_value_with_spaces_to_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage
             .set("key".to_string(), "value with spaces".to_string())
@@ -288,7 +454,7 @@ mod tests {
 
     #[tokio::test]
     async fn incr_unset_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         let result = storage.incr("key".to_string()).await;
 
@@ -298,7 +464,7 @@ mod tests {
 
     #[tokio::test]
     async fn incr_set_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "9".to_string()).await;
         let result = storage.incr("key".to_string()).await;
@@ -309,7 +475,7 @@ mod tests {
 
     #[tokio::test]
     async fn decr_unset_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         let result = storage.decr("key".to_string()).await;
 
@@ -319,7 +485,7 @@ mod tests {
 
     #[tokio::test]
     async fn decr_set_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "17".to_string()).await;
         let result = storage.decr("key".to_string()).await;
@@ -330,7 +496,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_expiration_to_unkown_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage
             .set_expiration("key".to_string(), Duration::from_millis(10))
@@ -342,7 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_expiration_to_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "value".to_string()).await;
 
@@ -358,7 +524,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_expiration_zero_to_key() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "value".to_string()).await;
 
@@ -372,7 +538,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_expiration_to_key_and_check_expirations() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "value".to_string()).await;
 
@@ -398,7 +564,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_expiration_to_key_check_expirations_and_remove_expired_keys() {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key".to_string(), "value".to_string()).await;
 
@@ -418,7 +584,7 @@ mod tests {
     #[tokio::test]
     async fn save_dump_with_multiple_keys_and_load_to_new_storage_with_different_number_of_shards()
     {
-        let storage = ShardedStorage::new(3);
+        let storage = ShardedStorage::new(3, Vec::new());
 
         storage.set("key-1".to_string(), "value".to_string()).await;
         storage.set("key-2".to_string(), "value".to_string()).await;
@@ -430,7 +596,7 @@ mod tests {
         let result = storage.save().await;
         assert_eq!(result.is_ok(), true);
 
-        let storage = ShardedStorage::new(7);
+        let storage = ShardedStorage::new(7, Vec::new());
         let result = storage.load().await;
         assert_eq!(result.is_ok(), true);
 
