@@ -1,43 +1,53 @@
 # SSache
 
-Super Simple cache.
+A simple implementation of an in-memory cache server inspired by
+[redis][0].
 
-A very simple implementation of a cache system inspired by
-[redis][0]. The goal of this project is to build a usable simple cache
-system that i can use on my own website.
+## Internal structures
 
-## Commands supported
+SSache stores all data on a sharded `HashMap`, the default number of
+shards is 8 but can be changed via CLI using the `-s` option. Any
+stored data can have an expiration time defined by the `EXPIRE`
+command, a background thread runs every second checking for
+expirations so the actual deletion might no be very precise. SSache
+also supports replication for other servers, if any replicas are
+configured ssache will append all write operations(`SET`, `INCR` and
+`DECR`) to an internal log(kept for each replica) sharded by the same
+number of shards used for the storage. The replication process runs
+concurrently with write operations because while it's sending the
+commands to the replicas only an offset is updated, after all possible
+operations are sent to the replicas(with a maximum of 100 operations)
+the replication process blocks writes to the log, "drains"" all the
+replicated operations and resets the offset.
 
-To send the commands to ssache you need to stablish a tcp connection,
-the protocol used is based on [RESP][1].
-
-- GET
-- SET
-- EXPIRE
-- INCR
-- DECR
-- SAVE
-- LOAD
-- PING
-- QUIT
+If you need to dump all the stored keys to a file you can either use
+the `SAVE` command or configure ssache to dump everything in a given
+interval, this is disabled by default. With a dump file you can then
+`LOAD` all the keys in-memory if needed.
 
 ## Building
 
 ```shell
-cargo build
+cargo build --release
 ```
 
 ## Tests
 
 There are unit tests written in rust and integration tests written in
 python. These tests can be ran executing the `tests/test_runner.py`
-script.
+script(they need a built release version of ssache to run).
 
-## Examples
+## Commands
+
+To send the commands to ssache you need to stablish a tcp connection
+with the server, the protocol used is based on [RESP][1].
 
 ### SET
 
 SET [key] [value]
+
+Writes a value to a key. Returns OK if the write was done
+successfully.
 
 ```shell
 $ telnet 127.0.0.1 7777
@@ -51,6 +61,9 @@ SET key some-value
 ### GET
 
 GET [key]
+
+Reads the value of a key. Returns a bulk string with the value or -1
+if the key doesn't exist.
 
 ```shell
 $ telnet 127.0.0.1 7777
@@ -79,10 +92,10 @@ EXPIRE key 1000
 
 ### INCR
 
-Increments the value stored in a [key], initializes with zero if the
-key doesn't exist. Returns the incremented value.
-
 INCR [key]
+
+Increments the value stored in a key, initializes with zero if the key
+doesn't exist. Returns the incremented value.
 
 ```shell
 $ telnet 127.0.0.1 7777
@@ -95,8 +108,8 @@ INCR key
 
 ### DECR
 
-Decrements the value stored in a [key], initializes with zero if the
-key doesn't exist. Returns the incremented value.
+Decrements the value stored in a key, initializes with zero if the key
+doesn't exist. Returns the incremented value.
 
 DECR [key]
 
@@ -107,17 +120,6 @@ Connected to 127.0.0.1.
 Escape character is '^]'.
 DECR key
 :0
-```
-
-### QUIT
-
-```shell
-$ telnet 127.0.0.1 7777
-Trying 127.0.0.1...
-Connected to 127.0.0.1.
-Escape character is '^]'.
-QUIT
-+OK
 ```
 
 ### SAVE
@@ -149,6 +151,8 @@ LOAD
 
 PING [Optional: message]
 
+Simple ping message to check the connection with the server.
+
 ```shell
 $ telnet 127.0.0.1 7777
 Trying 127.0.0.1...
@@ -169,6 +173,8 @@ $7
 ```
 
 ### QUIT
+
+Closes the connection with the server.
 
 ```shell
 $ telnet 127.0.0.1 7777
