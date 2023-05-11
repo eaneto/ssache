@@ -1,5 +1,3 @@
-use std::process::exit;
-use std::sync::mpsc;
 use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
@@ -58,16 +56,6 @@ async fn main() {
     if args.replication_active {
         enable_replication(storage.clone(), &args);
     }
-
-    tokio::spawn(async move {
-        let (tx, rx) = mpsc::channel();
-
-        ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
-            .expect("Error setting Ctrl-C handler");
-
-        rx.recv().expect("Could not receive from channel.");
-        exit(0);
-    });
 
     enable_expiration_job(storage.clone());
 
