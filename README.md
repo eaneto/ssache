@@ -17,7 +17,7 @@ number of shards used for the storage. The replication process runs
 concurrently with write operations because while it's sending the
 commands to the replicas only an offset is updated, after all possible
 operations are sent to the replicas(with a maximum of 100 operations)
-the replication process blocks writes to the log, "drains"" all the
+the replication process blocks writes to the log, "drains" all the
 replicated operations and resets the offset.
 
 If you need to dump all the stored keys to a file you can either use
