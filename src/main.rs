@@ -2,10 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use clokwerk::{AsyncScheduler, TimeUnits};
-use log::{debug, info, trace, warn};
 use storage::ShardedStorage;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+use tracing::{debug, info, trace, warn};
 
 mod command;
 mod errors;
@@ -44,7 +44,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
 
     let storage = Arc::new(ShardedStorage::new(args.shards, args.replicas.clone()));
@@ -151,7 +151,7 @@ async fn handle_connections(listener: TcpListener, storage: Arc<ShardedStorage>)
                     process_connection_loop(storage_clone, &mut stream).await;
                 });
             }
-            Err(e) => warn!("Error listening to socket, {}", e),
+            Err(e) => warn!("Error listening to socket, {e}"),
         }
     }
 }
@@ -240,7 +240,7 @@ async fn handle_request(
                             format!("-ERROR positive overflow{CRLF}")
                         }
                         &_ => {
-                            debug!("unkwon error incrementing key {}", e);
+                            debug!("unkwon error incrementing key {e}");
                             format!("-ERROR unknown error {CRLF}")
                         }
                     }
@@ -267,7 +267,7 @@ async fn handle_request(
                             format!("-ERROR positive overflow{CRLF}")
                         }
                         &_ => {
-                            debug!("unkwon error incrementing key {}", e);
+                            debug!("unkwon error incrementing key {e}");
                             format!("-ERROR unknown error {CRLF}")
                         }
                     }

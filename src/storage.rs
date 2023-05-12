@@ -7,12 +7,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{debug, error, trace};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::{Mutex, RwLock},
 };
+use tracing::{debug, error, trace};
 
 use crate::{
     errors::{LoadError, SaveError},
@@ -71,14 +71,11 @@ impl ShardedStorage {
 
         match shard.get(&key) {
             Some(entry) => {
-                debug!(
-                    "found {:?} for {:?} on shard {:?}",
-                    entry.value, key, shard_key
-                );
+                debug!(value = entry.value, key = key, shard = shard_key, "found",);
                 Some(entry.value.clone())
             }
             None => {
-                debug!("value not found for {:?} on shard {:?}", key, shard_key);
+                debug!(key = key, shard = shard_key, "value not found");
                 None
             }
         }
@@ -95,7 +92,7 @@ impl ShardedStorage {
                 created_at: Instant::now(),
             },
         );
-        debug!("value successfully set on shard {:?}", shard_key);
+        debug!(shard = shard_key, "value successfully set");
     }
 
     /// Dumps the in-memory storage into a single file with the data
@@ -109,7 +106,7 @@ impl ShardedStorage {
         // being created it's only necessary to follow the reference.
         let mut joined_shards: HashMap<String, String> = HashMap::new();
         for i in 0..self.shards.len() {
-            debug!("Initiating save process for shard {i}");
+            debug!(shard = i, "Initiating save process");
             self.shards[i].read().await.iter().for_each(|(key, entry)| {
                 joined_shards.insert(key.clone(), entry.value.clone());
             });
@@ -190,11 +187,11 @@ impl ShardedStorage {
             let shard_key = self.get_shard_key(key);
             let mut shard = self.shards[shard_key].write().await;
             if shard.get(key).is_none() {
-                debug!("Key '{}' already deleted on shard {}", key, shard_key);
+                debug!(key = key, shard = shard_key, "Key already deleted on shard");
             } else {
                 let now = Instant::now();
                 if now >= *expiration_time {
-                    debug!("Removing '{}' from shard {}", key, shard_key);
+                    debug!(key = key, shard = shard_key, "Removing key from shard");
                     shard.remove(key);
                     expired_keys.push(key.clone());
                 }
@@ -252,7 +249,7 @@ impl ShardedStorage {
     /// Broadcast the operation log to all registered replicas.
     pub async fn broadcast_to_replicas(&self) {
         for replica in &self.replicas {
-            debug!("Broadcasting to {replica}");
+            debug!(replica = replica, "Broadcasting");
             for i in 0..self.num_shards {
                 let log = self.log.get(replica).unwrap()[i].read().await;
                 let mut log_offset = self.log_offset.get(replica).unwrap()[i].lock().await;
@@ -269,15 +266,15 @@ impl ShardedStorage {
         log_offset: &mut u32,
         replica: &String,
     ) {
-        trace!("Current log offset {log_offset}");
+        trace!(log_offset = log_offset, "Current log offset");
 
         let mut stream = match TcpStream::connect(&replica).await {
             Ok(stream) => {
-                trace!("Successfully connected to replica {replica}");
+                trace!(replica = replica, "Successfully connected to replica");
                 stream
             }
             Err(e) => {
-                error!("Error connecting to replica {replica} {e}");
+                error!(replica = replica, "Error connecting to replica {e}");
                 return;
             }
         };
@@ -285,11 +282,11 @@ impl ShardedStorage {
         let batch_size = 100;
         let mut replicated_operations_by_shard = 0;
         for offset in *log_offset..(*log_offset + batch_size) {
-            trace!("Replicating log offset {offset}");
+            trace!(offset = offset, "Replicating log offset");
             let operation = match log.get(offset as usize) {
                 Some(operation) => operation,
                 None => {
-                    trace!("Operation not found on offset {offset}");
+                    trace!(offset = offset, "Operation not found on offset");
                     break;
                 }
             };
@@ -308,7 +305,7 @@ impl ShardedStorage {
         stream: &mut TcpStream,
         replicated_operations_by_shard: &mut u32,
     ) {
-        trace!("Sending operation {} {}", operation.0, operation.1);
+        trace!(key = operation.0, value = operation.1, "Sending operation");
 
         let command = format!("SET {} {}{CRLF}", operation.0, operation.1);
 
@@ -317,8 +314,9 @@ impl ShardedStorage {
             Err(e) => {
                 // Ignore error and proceed with replication
                 error!(
-                    "Error sending operation({} {}) to replica {e}",
-                    operation.0, operation.1
+                    key = operation.0,
+                    value = operation.1,
+                    "Error sending operation to replica {e}",
                 )
             }
         }

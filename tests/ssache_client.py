@@ -11,7 +11,6 @@ CRLF = "\r\n"
 
 
 def initialize_ssache(port: int = 7777, args: Optional[str] = None):
-    os.environ["RUST_LOG"] = "info"
     command = ["./target/release/ssache", "-p", str(port)]
     if args is not None:
         command.extend(args.split(" "))

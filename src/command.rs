@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::errors::SsacheError;
 
-use log::debug;
+use tracing::debug;
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
